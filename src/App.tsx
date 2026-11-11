@@ -38,7 +38,7 @@ import {
   templates,
   validateTemplate,
   type Template,
-} from "../../meeple/shared/scoring";
+} from "@/domain/scoring";
 
 type Row = { key: string; gameKey: string; builtIn: boolean; data: Template };
 const library = makeFunctionReference<"query", { gameKey: string }, Row[]>(

@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run typecheck && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "playwright test",
-    "format": "prettier --write src vite.config.ts playwright.config.ts tests"
+    "format": "prettier --write src vite.config.ts playwright.config.ts tests",
+    "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
