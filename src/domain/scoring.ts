@@ -1,5 +1,9 @@
 import { duneExpansionTemplates } from "./dune-templates";
-import { rankedTemplates, rankedTemplateId } from "./ranked-templates";
+import {
+  rankedTemplates,
+  rankedTemplateId,
+  rankingSnapshot,
+} from "./ranked-templates";
 import type { Game } from "./model";
 export type Field = {
   id: string;
@@ -38,18 +42,54 @@ export const templates: Record<string, Template> = {
   ...rankedTemplates,
   ...duneExpansionTemplates,
   "win-loss-v1": {
-    id: "win-loss-v1", version: 1, engineVersion: 2,
-    resultMode: "declared", title: "Win/loss only", edition: "Competitive",
-    source: "", minPlayers: 1, maxPlayers: 12,
-    fields: [field("outcome", "Outcome", "Choose victory or defeat for each player.", true, 0)],
-    tieBreakers: [], endCondition: "Confirm the final outcome for every player.",
+    id: "win-loss-v1",
+    version: 1,
+    engineVersion: 2,
+    resultMode: "declared",
+    title: "Win/loss only",
+    edition: "Competitive",
+    source: "",
+    minPlayers: 1,
+    maxPlayers: 12,
+    fields: [
+      {
+        ...field(
+          "outcome",
+          "Outcome",
+          "Choose victory or defeat for each player.",
+          true,
+          0,
+        ),
+        max: 1,
+      },
+    ],
+    tieBreakers: [],
+    endCondition: "Confirm the final outcome for every player.",
   },
   "cooperative-win-loss-v1": {
-    id: "cooperative-win-loss-v1", version: 1, engineVersion: 2,
-    resultMode: "cooperative", title: "Cooperative win/loss", edition: "Cooperative",
-    source: "", minPlayers: 1, maxPlayers: 12,
-    fields: [field("outcome", "Outcome", "Choose the outcome for the whole group.", true, 0)],
-    tieBreakers: [], endCondition: "Confirm the final outcome for the group.",
+    id: "cooperative-win-loss-v1",
+    version: 1,
+    engineVersion: 2,
+    resultMode: "cooperative",
+    title: "Cooperative win/loss",
+    edition: "Cooperative",
+    source: "",
+    minPlayers: 1,
+    maxPlayers: 12,
+    fields: [
+      {
+        ...field(
+          "outcome",
+          "Outcome",
+          "Choose the outcome for the whole group.",
+          true,
+          0,
+        ),
+        max: 1,
+      },
+    ],
+    tieBreakers: [],
+    endCondition: "Confirm the final outcome for the group.",
   },
   "manual-v1": {
     id: "manual-v1",
@@ -411,6 +451,20 @@ export function validateTemplate(t: Template) {
     throw new Error("Tie-breakers must be shared categories, in order.");
 }
 
+/** Reverse the same provider-ID mapping used when selecting a game's built-in sheets. */
+export function builtInTemplateGameKey(templateId: string): string | undefined {
+  if (templateId === "everdell-v1") return "everdell";
+  if (
+    templateId === "dune-v1" ||
+    Object.hasOwn(duneExpansionTemplates, templateId)
+  )
+    return "dune";
+  const game = rankingSnapshot.games.find(
+    (game) => rankedTemplateId(game.ludopediaId) === templateId,
+  );
+  return game ? `ludo-${game.ludopediaId}` : undefined;
+}
+
 /** Bind by verified provider ID or preserved starter identity, never by name. */
 export function builtInTemplateForGame(
   game?: Pick<Game, "id" | "ludopediaId" | "templateId">,
@@ -435,17 +489,12 @@ export function builtInTemplateForGame(
   return id ? templates[id] : undefined;
 }
 export function builtInTemplatesForGame(
-  game?: Pick<Game, "id" | "ludopediaId" | "templateId">,
+  _game?: Pick<Game, "id" | "ludopediaId" | "templateId">,
 ): Template[] {
-  const dedicated = builtInTemplateForGame(game);
   return [
     templates["manual-v1"],
     templates["win-loss-v1"],
     templates["cooperative-win-loss-v1"],
-    ...(dedicated ? [dedicated] : []),
-    ...(dedicated?.id === "dune-v1"
-      ? Object.values(duneExpansionTemplates)
-      : []),
   ];
 }
 
@@ -453,7 +502,6 @@ export function templateMatchesExpansions(
   template: Template,
   expansions: Game[],
 ): boolean {
-  if (template.id === "dune-v1") return expansions.length === 0;
   return (
     !template.expansionIds ||
     (template.expansionIds.length === expansions.length &&
@@ -464,7 +512,9 @@ export function templateMatchesExpansions(
 }
 
 export function isGenericTemplate(template: Template): boolean {
-  return ["manual-v1", "win-loss-v1", "cooperative-win-loss-v1"].includes(template.id);
+  return ["manual-v1", "win-loss-v1", "cooperative-win-loss-v1"].includes(
+    template.id,
+  );
 }
 
 /** Prefer compatible game sheets; generic scoring is a fallback. */
@@ -472,7 +522,12 @@ export function scoringChoices<T extends { data: Template; label: string }>(
   choices: T[],
   expansions: Game[] = [],
 ): T[] {
-  const compatible = choices.filter(({ data }) => templateMatchesExpansions(data, expansions));
-  const dedicated = compatible.filter(({ data }) => !isGenericTemplate(data));
-  return dedicated.length ? dedicated : compatible;
+  const compatible = choices.filter(({ data }) =>
+    templateMatchesExpansions(data, expansions),
+  );
+  return compatible;
 }
+
+export const defaultTemplates: Record<string, Template> = Object.fromEntries(
+  builtInTemplatesForGame().map((template) => [template.id, template]),
+);

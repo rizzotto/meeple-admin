@@ -6,7 +6,6 @@ import type { GenericId } from "convex/values";
 import {
   BookOpen,
   ChevronRight,
-  Copy,
   Dices,
   FilePlus2,
   Layers3,
@@ -34,9 +33,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { templates, validateTemplate, type Template } from "@/domain/scoring";
+import { validateTemplate, type Template } from "@/domain/scoring";
+import { officialTemplateSeeds } from "@/domain/template-seeds";
 
-type Row = { key: string; gameKey: string; builtIn: boolean; data: Template };
+type Row = {
+  key: string;
+  gameKey: string;
+  gameTitle: string;
+  builtIn: boolean;
+  data: Template;
+};
+type GameOption = { key: string; title: string; data: Template | null };
+const gameSearch = makeFunctionReference<
+  "query",
+  { search: string },
+  GameOption[]
+>("template_admin:games");
 const library = makeFunctionReference<"query", { gameKey: string }, Row[]>(
   "template_admin:library",
 );
@@ -45,9 +57,8 @@ const saveTemplate = makeFunctionReference<
   {
     gameKey: string;
     data: Template;
-    previousId?: GenericId<"scoringTemplates">;
   },
-  GenericId<"scoringTemplates">
+  GenericId<"officialTemplates">
 >("template_admin:save");
 const permission = makeFunctionReference<
   "query",
@@ -69,15 +80,11 @@ const fresh = (): Template => ({
   tieBreakers: [],
   endCondition: "All players have completed final scoring.",
 });
-const demo: Row[] = Object.values(templates).map((data) => ({
+const demo: Row[] = officialTemplateSeeds.map(({ game, data }) => ({
   key: data.id,
-  gameKey:
-    data.id === "everdell-v1"
-      ? "everdell"
-      : data.id === "dune-v1"
-        ? "dune"
-        : "",
-  builtIn: true,
+  gameKey: game.id,
+  gameTitle: game.title,
+  builtIn: false,
   data,
 }));
 
@@ -222,20 +229,20 @@ function LiveWorkspace({ onSignOut }: { onSignOut: () => void }) {
   const [gameKey, setGameKey] = useState("");
   const rows = useQuery(library, { gameKey });
   const save = useMutation(saveTemplate);
+  if (rows === undefined)
+    return (
+      <div className="gate" role="status">
+        Loading official templates…
+      </div>
+    );
   return (
     <Workspace
       rows={rows}
       onGameKey={setGameKey}
       onSignOut={onSignOut}
-      onSave={async (key, data, previousId) => {
-        const id = await save({
-          gameKey: key,
-          data,
-          ...(previousId
-            ? { previousId: previousId as GenericId<"scoringTemplates"> }
-            : {}),
-        });
-        setGameKey(key);
+      onSave={async (key, data) => {
+        const id = await save({ gameKey: key, data });
+        setGameKey("");
         return id;
       }}
     />
@@ -248,23 +255,19 @@ function Workspace({
   onSignOut,
 }: {
   rows: Row[] | undefined;
-  onSave?: (
-    key: string,
-    data: Template,
-    previousId?: string,
-  ) => Promise<string>;
+  onSave?: (key: string, data: Template) => Promise<string>;
   onGameKey?: (key: string) => void;
   onSignOut?: () => void;
 }) {
   const [selected, setSelected] = useState<Row | null>(
-    demo.find((r) => r.key === "everdell-v1") ?? demo[0],
+    rows?.find((r) => r.gameKey === "everdell") ?? rows?.[0] ?? null,
   );
   const [draft, setDraft] = useState<Template>(() =>
-    structuredClone(selected!.data),
+    selected ? structuredClone(selected.data) : fresh(),
   );
   const [gameKey, setGameKey] = useState(selected?.gameKey ?? "");
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
@@ -296,17 +299,29 @@ function Workspace({
       setJsonDirty(false);
       setError("");
     });
-  const create = () =>
-    navigate(() => {
-      setSelected(null);
-      setDraft(fresh());
-      setGameKey(filter);
-      setDirty(false);
-      setJsonDirty(false);
-      setError("");
-    });
+  const create = () => navigate(() => setPickerOpen(true));
+  const selectGame = (game: GameOption) => {
+    const data = game.data ?? { ...fresh(), title: game.title };
+    setSelected(
+      game.data
+        ? {
+            key: data.id,
+            gameKey: game.key,
+            gameTitle: game.title,
+            builtIn: false,
+            data,
+          }
+        : null,
+    );
+    setDraft(structuredClone(data));
+    setGameKey(game.key);
+    setDirty(!game.data);
+    setJsonDirty(false);
+    setError("");
+    setPickerOpen(false);
+  };
   const items = (rows ?? []).filter((r) =>
-    `${r.data.title} ${r.data.edition}`
+    `${r.gameTitle} ${r.data.title} ${r.data.edition}`
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
@@ -314,25 +329,26 @@ function Workspace({
     setError("");
     try {
       validateTemplate(draft);
-      if (!gameKey.trim())
-        throw new Error("Enter the Meeple game key before publishing.");
+      if (!gameKey.trim()) throw new Error("Choose a game before saving.");
       if (!onSave)
-        throw new Error("Preview mode. Connect Convex and sign in to publish.");
+        throw new Error("Preview mode. Connect Convex and sign in to save.");
       setSaving(true);
-      const id = await onSave(
-        gameKey.trim(),
-        draft,
-        selected && !selected.builtIn ? selected.key : undefined,
-      );
+      const id = await onSave(gameKey.trim(), draft);
       setDirty(false);
-      toast.success("Template revision published");
+      toast.success("Official template saved");
       const data = {
         ...draft,
         id,
-        version: selected && !selected.builtIn ? draft.version + 1 : 1,
+        version: 1,
       };
       setDraft(data);
-      setSelected({ key: id, gameKey: gameKey.trim(), builtIn: false, data });
+      setSelected({
+        key: id,
+        gameKey: gameKey.trim(),
+        gameTitle: selected?.gameTitle ?? draft.title,
+        builtIn: false,
+        data,
+      });
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Could not save. Please try again.",
@@ -390,7 +406,7 @@ function Workspace({
           <div>
             <div className="eyebrow">The finishing touches</div>
             <h1>Scoring templates</h1>
-            <p>A clear score sheet for every kind of game night.</p>
+            <p>One official sheet per game. Three defaults for every table.</p>
           </div>
           <Button onClick={create}>
             <Plus size={16} /> New template
@@ -399,7 +415,7 @@ function Workspace({
         {!onSave && (
           <div className="preview-banner">
             You’re exploring the template editor. Add VITE_CONVEX_URL to connect
-            your Meeple backend and publish.
+            your Meeple backend and save.
           </div>
         )}
         <div className="workbench">
@@ -417,28 +433,14 @@ function Workspace({
                 onChange={(e) => setQuery(e.target.value)}
               />
             </div>
-            <form
-              className="game-filter"
-              onSubmit={(e) => {
-                e.preventDefault();
-                onGameKey?.(filter.trim());
-              }}
-            >
-              <Input
-                aria-label="Filter by game key"
-                placeholder="Game key, e.g. everdell"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
-              <Button
-                type="submit"
-                variant="outline"
-                size="sm"
-                disabled={!onGameKey}
-              >
-                Load
+            <div className="game-filter">
+              <Button variant="outline" size="sm" onClick={create}>
+                Choose a game
               </Button>
-            </form>
+              <Button variant="ghost" size="sm" onClick={() => onGameKey?.("")}>
+                Show all
+              </Button>
+            </div>
             <div className="template-list">
               {rows === undefined ? (
                 <p role="status" className="empty">
@@ -487,25 +489,10 @@ function Workspace({
             <div className="editor-top">
               <div>
                 <Badge variant="secondary">
-                  {selected?.builtIn
-                    ? "Built-in original"
-                    : selected
-                      ? `Revision ${draft.version}`
-                      : "New template"}
+                  {selected ? "Official template" : "New official template"}
                 </Badge>
                 <h2>{draft.title || "Untitled template"}</h2>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Duplicate template"
-                onClick={() => {
-                  setSelected(null);
-                  change({ title: `${draft.title.slice(0, 73)} copy` });
-                }}
-              >
-                <Copy size={17} />
-              </Button>
             </div>
             <Tabs
               defaultValue="details"
@@ -541,15 +528,21 @@ function Workspace({
                       onChange={(e) => change({ edition: e.target.value })}
                     />
                   </Field>
-                  <Field label="Meeple game key">
+                  <Field label="Game">
                     <Input
-                      placeholder="e.g. everdell"
-                      value={gameKey}
-                      onChange={(e) => {
-                        setGameKey(e.target.value);
-                        setDirty(true);
-                      }}
+                      value={selected?.gameTitle ?? draft.title}
+                      readOnly
                     />
+                    <span className="helper">
+                      {gameKey || "Choose a game to link this template"}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => navigate(() => setPickerOpen(true))}
+                    >
+                      Choose game
+                    </Button>
                   </Field>
                 </div>
                 <div className="two-col">
@@ -760,8 +753,8 @@ function Workspace({
               <TabsContent value="advanced" className="form-body">
                 <p className="helper">
                   Edit the full Meeple template, including roles, expansions,
-                  and outcome rules. Apply before publishing. Publishing is
-                  disabled while JSON changes are unapplied.
+                  and outcome rules. Apply before saveing. Saveing is disabled
+                  while JSON changes are unapplied.
                 </p>
                 <Textarea
                   aria-label="Template JSON"
@@ -799,16 +792,19 @@ function Workspace({
               )}
               <div>
                 <span className={dirty ? "status-dot amber" : "status-dot"} />
-                {dirty ? "Unsaved changes" : "No unpublished changes"}
+                {dirty ? "Unsaved changes" : "No unsaveed changes"}
                 <Button
                   disabled={saving || jsonDirty}
                   onClick={() => void save()}
                 >
                   <Save size={15} />
-                  {saving ? "Publishing…" : "Publish revision"}
+                  {saving ? "Saveing…" : "Save official template"}
                 </Button>
               </div>
-              <small>New revisions keep recorded matches intact.</small>
+              <small>
+                One official template per game. Saving replaces its current
+                rules.
+              </small>
             </div>
           </section>
           <aside className="preview-panel">
@@ -853,10 +849,10 @@ function Workspace({
             </div>
             <div className="revision-note">
               <FilePlus2 size={18} />
-              <h3>Every edit is a fresh start.</h3>
+              <h3>One game. One official sheet.</h3>
               <p>
-                Publish a new revision to make changes available. Existing
-                matches keep their original score sheet.
+                Save changes directly to the official template. Players can also
+                choose the three defaults or create their own templates.
               </p>
             </div>
           </aside>
@@ -866,6 +862,29 @@ function Workspace({
           <span>Meeple template studio</span>
         </footer>
       </main>
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Choose a game</DialogTitle>
+            <DialogDescription>
+              Each game has one official template. Select a game to create or
+              edit its sheet.
+            </DialogDescription>
+          </DialogHeader>
+          {onSave ? (
+            <LiveGamePicker onSelect={selectGame} />
+          ) : (
+            <GamePicker
+              games={demo.map((row) => ({
+                key: row.gameKey,
+                title: row.gameTitle,
+                data: row.data,
+              }))}
+              onSelect={selectGame}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={Boolean(pending)}
         onOpenChange={(open) => {
@@ -876,7 +895,7 @@ function Workspace({
           <DialogHeader>
             <DialogTitle>Discard unsaved changes?</DialogTitle>
             <DialogDescription>
-              Your current edits haven’t been published.
+              Your current edits haven’t been saveed.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -904,5 +923,71 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span>{label}</span>
       {children}
     </Label>
+  );
+}
+
+function LiveGamePicker({
+  onSelect,
+}: {
+  onSelect: (game: GameOption) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const games = useQuery(gameSearch, { search });
+  return (
+    <GamePicker
+      games={games}
+      search={search}
+      onSearch={setSearch}
+      onSelect={onSelect}
+    />
+  );
+}
+function GamePicker({
+  games,
+  search: remoteSearch,
+  onSearch,
+  onSelect,
+}: {
+  games: GameOption[] | undefined;
+  search?: string;
+  onSearch?: (search: string) => void;
+  onSelect: (game: GameOption) => void;
+}) {
+  const [localSearch, setLocalSearch] = useState("");
+  const search = remoteSearch ?? localSearch;
+  const filtered = onSearch
+    ? games
+    : games?.filter((game) =>
+        game.title.toLowerCase().includes(search.toLowerCase()),
+      );
+  return (
+    <div className="game-picker">
+      <Input
+        aria-label="Search games"
+        placeholder="Search games by name…"
+        value={search}
+        onChange={(e) => (onSearch ?? setLocalSearch)(e.target.value)}
+      />
+      <div className="game-picker-results">
+        {filtered === undefined ? (
+          <p role="status">Loading games…</p>
+        ) : !filtered.length ? (
+          <p>No catalog games found. Import a game in Meeple first.</p>
+        ) : (
+          filtered.map((game) => (
+            <Button
+              key={game.key}
+              variant="ghost"
+              onClick={() => onSelect(game)}
+            >
+              <span>{game.title}</span>
+              <Badge variant="secondary">
+                {game.data ? "Edit official" : "Create official"}
+              </Badge>
+            </Button>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
