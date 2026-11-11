@@ -34,11 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  templates,
-  validateTemplate,
-  type Template,
-} from "@/domain/scoring";
+import { templates, validateTemplate, type Template } from "@/domain/scoring";
 
 type Row = { key: string; gameKey: string; builtIn: boolean; data: Template };
 const library = makeFunctionReference<"query", { gameKey: string }, Row[]>(
@@ -118,6 +114,7 @@ function Connected() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { signIn, signOut } = useAuthActions();
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState("");
   if (isLoading)
     return (
@@ -137,6 +134,28 @@ function Connected() {
           <br />A better game night.
         </h1>
         <p>Sign in with your Meeple administrator account.</p>
+        <div className="login">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy || googleBusy}
+            onClick={async () => {
+              setGoogleBusy(true);
+              setError("");
+              try {
+                await signIn("google", { redirectTo: `${location.origin}/` });
+              } catch {
+                setError("Google sign-in could not start. Please try again.");
+              } finally {
+                setGoogleBusy(false);
+              }
+            }}
+          >
+            {googleBusy ? "Opening Google…" : "Continue with Google"}
+          </Button>
+          <p>Use Google if you used it to create your Meeple account.</p>
+        </div>
+        {error && <p role="alert">{error}</p>}
         <form
           className="login"
           onSubmit={async (e) => {
@@ -169,8 +188,9 @@ function Connected() {
             autoComplete="current-password"
             required
           />
-          {error && <p role="alert">{error}</p>}
-          <Button disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
+          <Button type="submit" disabled={busy || googleBusy}>
+            {busy ? "Signing in…" : "Sign in"}
+          </Button>
         </form>
       </div>
     );
