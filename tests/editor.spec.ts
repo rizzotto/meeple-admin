@@ -30,6 +30,12 @@ test("edits official templates, guards unsaved changes and validates JSON", asyn
     "Wingspan",
   );
   await expect(page.getByText("ludo-20418", { exact: true })).toBeVisible();
+  await page
+    .getByLabel("Template name", { exact: true })
+    .fill("Wingspan official scores");
+  await expect(page.getByLabel("Game", { exact: true })).toHaveValue(
+    "Wingspan",
+  );
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByRole("button", { name: "Remove New category" }).click();
   await page.getByRole("button", { name: "Save official template" }).click();

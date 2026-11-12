@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -33,7 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { validateTemplate, type Template } from "@/domain/scoring";
+import { templateTieBreakRules, validateTemplate, type Template } from "@/domain/scoring";
 import { officialTemplateSeeds } from "@/domain/template-seeds";
 
 type Row = {
@@ -266,6 +267,7 @@ function Workspace({
     selected ? structuredClone(selected.data) : fresh(),
   );
   const [gameKey, setGameKey] = useState(selected?.gameKey ?? "");
+  const [gameTitle, setGameTitle] = useState(selected?.gameTitle ?? "");
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -295,6 +297,7 @@ function Workspace({
       setSelected(row);
       setDraft(structuredClone(row.data));
       setGameKey(row.gameKey);
+      setGameTitle(row.gameTitle);
       setDirty(false);
       setJsonDirty(false);
       setError("");
@@ -315,6 +318,7 @@ function Workspace({
     );
     setDraft(structuredClone(data));
     setGameKey(game.key);
+    setGameTitle(game.title);
     setDirty(!game.data);
     setJsonDirty(false);
     setError("");
@@ -345,7 +349,7 @@ function Workspace({
       setSelected({
         key: id,
         gameKey: gameKey.trim(),
-        gameTitle: selected?.gameTitle ?? draft.title,
+        gameTitle,
         builtIn: false,
         data,
       });
@@ -406,7 +410,7 @@ function Workspace({
           <div>
             <div className="eyebrow">The finishing touches</div>
             <h1>Scoring templates</h1>
-            <p>One official sheet per game. Three defaults for every table.</p>
+            <p>One official sheet per base game, plus additive sheets for its expansions. Three defaults for every table.</p>
           </div>
           <Button onClick={create}>
             <Plus size={16} /> New template
@@ -528,11 +532,9 @@ function Workspace({
                       onChange={(e) => change({ edition: e.target.value })}
                     />
                   </Field>
-                  <Field label="Game">
-                    <Input
-                      value={selected?.gameTitle ?? draft.title}
-                      readOnly
-                    />
+                  <div className="field">
+                    <Label htmlFor="official-game">Game</Label>
+                    <Input id="official-game" value={gameTitle} readOnly />
                     <span className="helper">
                       {gameKey || "Choose a game to link this template"}
                     </span>
@@ -543,7 +545,7 @@ function Workspace({
                     >
                       Choose game
                     </Button>
-                  </Field>
+                  </div>
                 </div>
                 <div className="two-col">
                   <Field label="Minimum players">
@@ -635,6 +637,9 @@ function Workspace({
                             fields: draft.fields.map((f, i) =>
                               i === index ? { ...f, label: e.target.value } : f,
                             ),
+                          tieBreakRules: templateTieBreakRules(draft).map((rule) =>
+                            rule.fieldId === field.id ? { ...rule, label: e.target.value } : rule,
+                          ),
                           })
                         }
                       />
@@ -646,9 +651,8 @@ function Workspace({
                         onClick={() =>
                           change({
                             fields: draft.fields.filter((_, i) => i !== index),
-                            tieBreakers: draft.tieBreakers.filter(
-                              (id) => id !== field.id,
-                            ),
+                            tieBreakers: draft.tieBreakers.filter((id) => id !== field.id),
+                            tieBreakRules: templateTieBreakRules(draft).filter((rule) => rule.fieldId !== field.id),
                           })
                         }
                       >
@@ -719,6 +723,9 @@ function Workspace({
                                     (id) => id !== field.id,
                                   )
                                 : draft.tieBreakers,
+                              tieBreakRules: total
+                                ? templateTieBreakRules(draft).filter((rule) => rule.fieldId !== field.id)
+                                : templateTieBreakRules(draft),
                             })
                           }
                         />{" "}
@@ -731,17 +738,49 @@ function Workspace({
                   <Input
                     placeholder="Category IDs separated by commas"
                     key={selected?.key ?? "new"}
-                    defaultValue={draft.tieBreakers.join(", ")}
+                    defaultValue={templateTieBreakRules(draft).map((rule) => rule.fieldId).join(", ")}
                     onBlur={(e) =>
-                      change({
-                        tieBreakers: e.target.value
+                      (() => {
+                        const ids = e.target.value
                           .split(",")
                           .map((v) => v.trim())
-                          .filter(Boolean),
-                      })
+                          .filter(Boolean);
+                        const previous = templateTieBreakRules(draft);
+                        change({
+                          tieBreakers: ids,
+                          tieBreakRules: ids.map((fieldId) => previous.find((rule) => rule.fieldId === fieldId) ?? {
+                            fieldId,
+                            label: draft.fields.find((field) => field.id === fieldId)?.label ?? fieldId,
+                            direction: "higher",
+                          }),
+                        });
+                      })()
                     }
                   />
                 </Field>
+                {templateTieBreakRules(draft).map((rule, index) => (
+                  <div className="category-options" key={rule.fieldId}>
+                    <span>{index + 1}. {rule.label}</span>
+                    <Select
+                      value={rule.direction}
+                      onValueChange={(direction) => change({
+                        tieBreakRules: templateTieBreakRules(draft).map((current) =>
+                          current.fieldId === rule.fieldId
+                            ? { ...current, direction: direction as "higher" | "lower" }
+                            : current,
+                        ),
+                      })}
+                    >
+                      <SelectTrigger aria-label={`${rule.label} comparison`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="higher">Higher value wins</SelectItem>
+                        <SelectItem value="lower">Lower value wins</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
                 <p className="helper">
                   Available non-total IDs:{" "}
                   {draft.fields
@@ -753,7 +792,7 @@ function Workspace({
               <TabsContent value="advanced" className="form-body">
                 <p className="helper">
                   Edit the full Meeple template, including roles, expansions,
-                  and outcome rules. Apply before saveing. Saveing is disabled
+                  and outcome rules. Apply before saving. Saving is disabled
                   while JSON changes are unapplied.
                 </p>
                 <Textarea
@@ -792,18 +831,18 @@ function Workspace({
               )}
               <div>
                 <span className={dirty ? "status-dot amber" : "status-dot"} />
-                {dirty ? "Unsaved changes" : "No unsaveed changes"}
+                {dirty ? "Unsaved changes" : "All changes saved"}
                 <Button
                   disabled={saving || jsonDirty}
                   onClick={() => void save()}
                 >
                   <Save size={15} />
-                  {saving ? "Saveing…" : "Save official template"}
+                  {saving ? "Saving…" : "Save official template"}
                 </Button>
               </div>
               <small>
-                One official template per game. Saving replaces its current
-                rules.
+                One sheet per selected game or expansion. Base game sheets can
+                be combined with additive expansion sections.
               </small>
             </div>
           </section>
@@ -867,8 +906,7 @@ function Workspace({
           <DialogHeader>
             <DialogTitle>Choose a game</DialogTitle>
             <DialogDescription>
-              Each game has one official template. Select a game to create or
-              edit its sheet.
+              Select a base game or expansion to create or edit its official scoring section.
             </DialogDescription>
           </DialogHeader>
           {onSave ? (

@@ -26,10 +26,14 @@ export type Template = {
   maxPlayers: number;
   fields: Field[];
   tieBreakers: string[];
+  tieBreakRules?: { fieldId: string; label: string; direction: "higher" | "lower" }[];
   endCondition: string;
   roles?: { id: string; label: string }[];
   lowestWins?: boolean;
   expansionIds?: string[];
+  componentTemplateIds?: string[];
+  isExpansionAddon?: boolean;
+  expansionKey?: string;
 };
 const field = (
   id: string,
@@ -176,17 +180,23 @@ export const templates: Record<string, Template> = {
         "Victory points",
         "Final VP after endgame Intrigue cards and all final scoring.",
       ),
-      field("spice", "Spice", "Remaining spice; first tie-breaker.", false),
-      field("solari", "Solari", "Remaining Solari; second tie-breaker.", false),
-      field("water", "Water", "Remaining water; third tie-breaker.", false),
+      field("spice", "Spice", "First tie-breaker: most remaining spice wins.", false),
+      field("solari", "Solari", "Second tie-breaker: most remaining Solari wins.", false),
+      field("water", "Water", "Third tie-breaker: most remaining water wins.", false),
       field(
         "troops",
         "Garrison troops",
-        "Troops in your garrison; final tie-breaker.",
+        "Fourth tie-breaker: most troops in your garrison wins.",
         false,
       ),
     ],
     tieBreakers: ["spice", "solari", "water", "troops"],
+    tieBreakRules: [
+      { fieldId: "spice", label: "Most spice", direction: "higher" },
+      { fieldId: "solari", label: "Most Solari", direction: "higher" },
+      { fieldId: "water", label: "Most water", direction: "higher" },
+      { fieldId: "troops", label: "Most troops in garrison", direction: "higher" },
+    ],
     endCondition:
       "At Recall, 10+ VP or an empty Conflict deck triggers the endgame. Resolve endgame Intrigue cards before final scoring. Reaching 10 VP does not immediately declare a winner.",
   },
@@ -291,23 +301,23 @@ export function evaluate(
     .sort((a, b) => (template.lowestWins ? a - b : b - a))
     .map((n) => totals.filter((p) => p.total === n));
   const used: string[] = [];
-  for (const key of template.tieBreakers) {
-    const f = template.fields.find((f) => f.id === key)!;
+  for (const rule of templateTieBreakRules(template)) {
+    const f = template.fields.find((f) => f.id === rule.fieldId)!;
     groups = groups.flatMap((group) => {
       if (group.length === 1) return [group];
-      used.push(f.label);
+      used.push(rule.label);
       for (const row of group) {
         const player = players.find((p) => p.id === row.playerId)!;
-        const value = player.scores[key];
+        const value = player.scores[rule.fieldId];
         if (value == null)
           throw new Error(
-            `${player.name}: enter ${f.label.toLowerCase()} to resolve the tie.`,
+            `${player.name}: enter ${rule.label.toLowerCase()} to resolve the tie.`,
           );
         validate(value, f, player.name);
         row.keys.push(value);
       }
       return [...new Set(group.map((r) => r.keys.at(-1)!))]
-        .sort((a, b) => b - a)
+        .sort((a, b) => rule.direction === "higher" ? b - a : a - b)
         .map((v) => group.filter((r) => r.keys.at(-1) === v));
     });
   }
@@ -360,6 +370,13 @@ export function fieldsForPlayer(template: Template, player: Player) {
       !f.roleIds?.length ||
       (!!player.roleId && f.roleIds.includes(player.roleId)),
   );
+}
+export function templateTieBreakRules(template: Template) {
+  return template.tieBreakRules ?? template.tieBreakers.map((fieldId) => ({
+    fieldId,
+    label: template.fields.find((field) => field.id === fieldId)?.label ?? fieldId,
+    direction: "higher" as const,
+  }));
 }
 export function validateTemplate(t: Template) {
   if (t.engineVersion !== 1 && t.engineVersion !== 2)
@@ -436,16 +453,17 @@ export function validateTemplate(t: Template) {
   }
   for (const role of roles.length ? roles : [{ id: "" }])
     if (
+      !t.isExpansionAddon &&
       !t.fields.some(
         (f) => f.total && (!f.roleIds?.length || f.roleIds.includes(role.id)),
       )
     )
       throw new Error("Each role needs at least one scoring category.");
   if (
-    new Set(t.tieBreakers).size !== t.tieBreakers.length ||
-    t.tieBreakers.some(
-      (id) =>
-        !t.fields.some((f) => f.id === id && !f.total && !f.roleIds?.length),
+    new Set(templateTieBreakRules(t).map((rule) => rule.fieldId)).size !== templateTieBreakRules(t).length ||
+    templateTieBreakRules(t).some(
+      (rule) => !rule.label.trim() ||
+        !t.fields.some((f) => f.id === rule.fieldId && !f.total && !f.roleIds?.length),
     )
   )
     throw new Error("Tie-breakers must be shared categories, in order.");
