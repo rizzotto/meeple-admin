@@ -304,6 +304,7 @@ function Workspace({
   );
   const [gameKey, setGameKey] = useState(selected?.gameKey ?? "");
   const [gameTitle, setGameTitle] = useState(selected?.gameTitle ?? "");
+  const [gameImage, setGameImage] = useState(selected?.image);
   const [providerIds, setProviderIds] = useState({ ludopediaId: selected?.ludopediaId, bggId: selected?.bggId });
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -335,6 +336,7 @@ function Workspace({
       setDraft(structuredClone(row.data));
       setGameKey(row.gameKey);
       setGameTitle(row.gameTitle);
+      setGameImage(row.image);
       setProviderIds({ ludopediaId: row.ludopediaId, bggId: row.bggId });
       setDirty(false);
       setJsonDirty(false);
@@ -360,6 +362,7 @@ function Workspace({
     setDraft(structuredClone(data));
     setGameKey(game.id);
     setGameTitle(game.title);
+    setGameImage(game.image);
     setProviderIds({ ludopediaId: game.ludopediaId, bggId: game.bggId });
     setDirty(!game.data);
     setJsonDirty(false);
@@ -841,6 +844,7 @@ function Workspace({
                     ludopediaId: game.ludopediaId,
                     bggId: game.bggId,
                   })}
+                  onImageChange={setGameImage}
                 />
               </TabsContent>
             </Tabs>
@@ -873,9 +877,7 @@ function Workspace({
             </div>
             <Card className="score-sheet">
               <CardContent>
-                <div className="preview-emblem">
-                  <Dices size={30} />
-                </div>
+                <GameCover image={gameImage} title={gameTitle} className="preview-game-cover" />
                 <span className="sheet-edition">{draft.edition}</span>
                 <h2>{draft.title}</h2>
                 <p>
@@ -1060,10 +1062,10 @@ function GamePicker({
     </div>
   );
 }
-function GameCover({ image, title }: { image?: string; title: string }) {
+function GameCover({ image, title, className = "" }: { image?: string; title: string; className?: string }) {
   const [failed, setFailed] = useState(false);
   return (
-    <span className="game-cover" title={title} aria-hidden="true">
+    <span className={`game-cover ${className}`} title={title} aria-hidden="true">
       {image && !failed ? (
         <img src={image} alt="" loading="lazy" onError={() => setFailed(true)} />
       ) : (
@@ -1076,10 +1078,12 @@ function SourceLinksPanel({
   gameKey,
   enabled,
   onLinked,
+  onImageChange,
 }: {
   gameKey: string;
   enabled: boolean;
   onLinked: (game: Game) => void;
+  onImageChange: (image?: string) => void;
 }) {
   const links = useQuery(sourceLinksQuery, enabled && gameKey ? { gameKey } : "skip");
   if (!gameKey)
@@ -1111,6 +1115,7 @@ function SourceLinksPanel({
           provider="ludopedia"
           current={links.ludopedia}
           onLinked={onLinked}
+          onImageChange={onImageChange}
         />
         <ProviderLinkCard
           key={`${gameKey}-bgg`}
@@ -1119,6 +1124,7 @@ function SourceLinksPanel({
           provider="bgg"
           current={links.bgg}
           onLinked={onLinked}
+          onImageChange={onImageChange}
         />
       </div>
     </div>
@@ -1130,12 +1136,14 @@ function ProviderLinkCard({
   provider,
   current,
   onLinked,
+  onImageChange,
 }: {
   gameKey: string;
   gameTitle: string;
   provider: SourceProvider;
   current: ProviderLink | null;
   onLinked: (game: Game) => void;
+  onImageChange: (image?: string) => void;
 }) {
   const label = provider === "bgg" ? "BoardGameGeek" : "Ludopedia";
   const [editing, setEditing] = useState(false);
@@ -1166,6 +1174,7 @@ function ProviderLinkCard({
     try {
       const game = await confirm({ proposalId: results.proposalId, candidateId: candidate.id, replace: true });
       onLinked(game);
+      onImageChange(game.image);
       setEditing(false);
       setResults(null);
       toast.success(`${label} link updated`);

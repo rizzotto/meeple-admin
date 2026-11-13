@@ -463,8 +463,7 @@ main {
 .game-cover {
   width: 44px;
   height: 64px;
-  border-radius: 6px;
-  background: #f0edf2;
+  border-radius: 5px;
   color: #806e89;
   display: inline-flex;
   align-items: center;
@@ -472,7 +471,6 @@ main {
   flex: 0 0 44px;
   position: relative;
   overflow: hidden;
-  border: 1px solid rgb(59 42 65 / 8%);
 }
 .game-cover img {
   position: absolute;
@@ -745,17 +743,11 @@ main {
 .score-sheet [data-slot="card-content"] {
   padding: 25px 20px 20px;
 }
-.preview-emblem {
+.preview-game-cover {
   margin: 0 auto 18px;
-  width: 57px;
-  height: 57px;
-  border: 1px solid #e1dbc8;
-  border-radius: 17px;
-  color: #8b9367;
-  background: #eff0e4;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 82px;
+  height: 120px;
+  flex-basis: 82px;
 }
 .sheet-edition {
   font-size: 9px;
