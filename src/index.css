@@ -193,6 +193,16 @@ p {
   position: fixed;
   inset: 0 auto 0 0;
 }
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.sidebar-toggle {
+  flex-shrink: 0;
+  color: #74687b;
+}
 .wordmark {
   display: flex;
   gap: 9px;
@@ -470,6 +480,16 @@ main {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+.tile img,
+.picker-game-art img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .tile-1 {
   background: #e7dcce;
@@ -1157,11 +1177,30 @@ main {
 .game-picker-results > button > span:first-child {
   flex: 1;
 }
+.game-picker-results > button > .picker-game-art {
+  flex: 0 0 34px;
+}
+.game-picker-results > button > .game-picker-option {
+  flex: 1;
+}
 .game-picker-option {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+.picker-game-art {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 38px;
+  flex: 0 0 34px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #e4eadd;
+  color: #6c805c;
 }
 .game-picker-identifiers {
   color: var(--muted-foreground);
@@ -1196,4 +1235,67 @@ main {
   padding: 15px;
   font-size: 12px;
   color: var(--muted-foreground);
+}
+
+.sidebar.collapsed {
+  width: 70px;
+  padding: 22px 10px;
+  align-items: center;
+}
+.sidebar.collapsed .sidebar-header {
+  width: 100%;
+  flex-direction: column;
+  gap: 16px;
+}
+.sidebar.collapsed .wordmark {
+  justify-content: center;
+  padding: 0;
+  font-size: 0;
+}
+.sidebar.collapsed .studio,
+.sidebar.collapsed .workspace-label,
+.sidebar.collapsed .sidebar-note {
+  display: none;
+}
+.sidebar.collapsed .nav-active {
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  margin-top: 24px;
+  padding: 0;
+  font-size: 0;
+}
+.sidebar.collapsed .nav-active [data-slot="badge"] {
+  display: none;
+}
+.sidebar.collapsed .sidebar-bottom {
+  width: 100%;
+  justify-content: center;
+  padding: 16px 0 0;
+  font-size: 0;
+}
+.sidebar.collapsed .sidebar-bottom button {
+  margin: 0;
+}
+.sidebar.collapsed + main {
+  margin-left: 70px;
+}
+@media (max-width: 850px) {
+  .sidebar.collapsed {
+    width: 100%;
+    height: 62px;
+    padding: 10px 14px;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+  .sidebar.collapsed .sidebar-header {
+    width: auto;
+    flex-direction: row;
+  }
+  .sidebar.collapsed .nav-active {
+    display: none;
+  }
+  .sidebar.collapsed + main {
+    margin-left: 0;
+  }
 }

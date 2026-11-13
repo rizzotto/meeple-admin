@@ -10,6 +10,8 @@ import {
   FilePlus2,
   Layers3,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   ShieldCheck,
@@ -41,12 +43,13 @@ type Row = {
   key: string;
   gameKey: string;
   gameTitle: string;
+  image?: string;
   ludopediaId?: number;
   bggId?: number;
   builtIn: boolean;
   data: Template;
 };
-type GameOption = { id: string; title: string; ludopediaId?: number; bggId?: number; data: Template | null };
+type GameOption = { id: string; title: string; image?: string; ludopediaId?: number; bggId?: number; data: Template | null };
 const gameSearch = makeFunctionReference<
   "query",
   { search: string },
@@ -87,6 +90,7 @@ const demo: Row[] = officialTemplateSeeds.map(({ game, data }) => ({
   key: data.id,
   gameKey: game.id,
   gameTitle: game.title,
+  ...(game.image ? { image: game.image } : {}),
   ...(game.ludopediaId ? { ludopediaId: game.ludopediaId } : {}),
   ...(game.bggId ? { bggId: game.bggId } : {}),
   builtIn: false,
@@ -267,6 +271,7 @@ function Workspace({
   const [selected, setSelected] = useState<Row | null>(
     rows?.[0] ?? null,
   );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [draft, setDraft] = useState<Template>(() =>
     selected ? structuredClone(selected.data) : fresh(),
   );
@@ -317,6 +322,7 @@ function Workspace({
             key: data.id,
             gameKey: game.id,
             gameTitle: game.title,
+            ...(game.image ? { image: game.image } : {}),
             ...(game.ludopediaId ? { ludopediaId: game.ludopediaId } : {}),
             ...(game.bggId ? { bggId: game.bggId } : {}),
             builtIn: false,
@@ -375,15 +381,27 @@ function Workspace({
   }
   return (
     <div className="shell">
-      <aside className="sidebar">
-        <a className="wordmark" href="/">
-          <span className="brand-icon">
-            <Dices size={22} />
-          </span>
-          meeple<span className="studio">studio</span>
-        </a>
+      <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
+        <div className="sidebar-header">
+          <a className="wordmark" href="/" aria-label="Meeple Studio home">
+            <span className="brand-icon">
+              <Dices size={22} />
+            </span>
+            meeple<span className="studio">studio</span>
+          </a>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="sidebar-toggle"
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </Button>
+        </div>
         <div className="workspace-label">Workspace</div>
-        <div className="nav-active">
+        <div className="nav-active" title="Scoring templates">
           <Layers3 size={18} /> Scoring templates{" "}
           <Badge variant="secondary">{rows?.length ?? "…"}</Badge>
         </div>
@@ -480,6 +498,16 @@ function Workspace({
                   >
                     <span className={`tile tile-${i % 4}`}>
                       <Dices size={21} />
+                      {row.image && (
+                        <img
+                          src={row.image}
+                          alt=""
+                          loading="lazy"
+                          onError={(event) => {
+                            event.currentTarget.style.display = "none";
+                          }}
+                        />
+                      )}
                     </span>
                     <span className="row-text">
                       <strong>{row.data.title}</strong>
@@ -893,6 +921,7 @@ function Workspace({
               games={demo.map((row) => ({
                 id: row.gameKey,
                 title: row.gameTitle,
+                ...(row.image ? { image: row.image } : {}),
                 ...(row.ludopediaId ? { ludopediaId: row.ludopediaId } : {}),
                 ...(row.bggId ? { bggId: row.bggId } : {}),
                 data: row.data,
@@ -997,6 +1026,19 @@ function GamePicker({
               variant="ghost"
               onClick={() => onSelect(game)}
             >
+              <span className="picker-game-art">
+                <Dices size={17} />
+                {game.image && (
+                  <img
+                    src={game.image}
+                    alt=""
+                    loading="lazy"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                )}
+              </span>
               <span className="game-picker-option">
                 <span>{game.title}</span>
                 <span className="game-picker-identifiers">
