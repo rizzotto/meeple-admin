@@ -109,7 +109,7 @@ import {
   type TemplateTranslationContent,
 } from "@/domain/scoring";
 import type { Game } from "@/domain/model";
-import { expansionCategory } from "../../meeple/shared/expansion-categories";
+import { expansionCategory } from "@/domain/expansion-categories";
 import { officialTemplateSeeds } from "@/domain/template-seeds";
 
 type Row = {
