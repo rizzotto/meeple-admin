@@ -660,9 +660,6 @@ function Workspace({
                   </Button>
                 }
               />
-              <span>
-                Workspace <ChevronRight size={14} /> Templates
-              </span>
             </span>
             <SheetContent side="left" className="sidebar-sheet">
               <SheetHeader className="sr-only">
