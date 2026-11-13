@@ -43,7 +43,7 @@ for (const [suffix, expansionIds, title] of [
       minPlayers: 1,
       maxPlayers: 4,
       fields,
-      tieBreakers: ["spice", "solari", "water", "troops"],
+      tieBreakRules: ["spice", "solari", "water", "troops"].map((fieldId) => ({ fieldId, direction: "higher" as const })),
       endCondition:
         (mode === "epic"
           ? "Epic: use the Epic setup and 12 VP endgame threshold. "

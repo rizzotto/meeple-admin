@@ -80,7 +80,7 @@ const fresh = (): Template => ({
   fields: [
     { id: "score", label: "Victory points", hint: "", min: 0, total: true },
   ],
-  tieBreakers: [],
+  tieBreakRules: [],
   endCondition: "All players have completed final scoring.",
 });
 const demo: Row[] = officialTemplateSeeds.map(({ game, data }) => ({
@@ -652,9 +652,6 @@ function Workspace({
                             fields: draft.fields.map((f, i) =>
                               i === index ? { ...f, label: e.target.value } : f,
                             ),
-                          tieBreakRules: templateTieBreakRules(draft).map((rule) =>
-                            rule.fieldId === field.id ? { ...rule, label: e.target.value } : rule,
-                          ),
                           })
                         }
                       />
@@ -666,7 +663,6 @@ function Workspace({
                         onClick={() =>
                           change({
                             fields: draft.fields.filter((_, i) => i !== index),
-                            tieBreakers: draft.tieBreakers.filter((id) => id !== field.id),
                             tieBreakRules: templateTieBreakRules(draft).filter((rule) => rule.fieldId !== field.id),
                           })
                         }
@@ -733,11 +729,6 @@ function Workspace({
                               fields: draft.fields.map((f, i) =>
                                 i === index ? { ...f, total } : f,
                               ),
-                              tieBreakers: total
-                                ? draft.tieBreakers.filter(
-                                    (id) => id !== field.id,
-                                  )
-                                : draft.tieBreakers,
                               tieBreakRules: total
                                 ? templateTieBreakRules(draft).filter((rule) => rule.fieldId !== field.id)
                                 : templateTieBreakRules(draft),
@@ -750,43 +741,34 @@ function Workspace({
                   </div>
                 ))}
                 <Field label="Tie-breakers, in priority order">
-                  <Input
-                    placeholder="Category IDs separated by commas"
-                    key={selected?.key ?? "new"}
-                    defaultValue={templateTieBreakRules(draft).map((rule) => rule.fieldId).join(", ")}
-                    onBlur={(e) =>
-                      (() => {
-                        const ids = e.target.value
-                          .split(",")
-                          .map((v) => v.trim())
-                          .filter(Boolean);
-                        const previous = templateTieBreakRules(draft);
-                        change({
-                          tieBreakers: ids,
-                          tieBreakRules: ids.map((fieldId) => previous.find((rule) => rule.fieldId === fieldId) ?? {
-                            fieldId,
-                            label: draft.fields.find((field) => field.id === fieldId)?.label ?? fieldId,
-                            direction: "higher",
-                          }),
-                        });
-                      })()
-                    }
-                  />
+                  <p className="helper">Choose fields here once. Their labels come from the scoring categories above.</p>
+                  <div className="category-options">
+                    <Select
+                      value="add-tie-breaker"
+                      onValueChange={(fieldId) => {
+                        if (fieldId === "add-tie-breaker") return;
+                        change({ tieBreakRules: [...templateTieBreakRules(draft), { fieldId, direction: "higher" }] });
+                      }}
+                    >
+                      <SelectTrigger aria-label="Add tie-breaker"><SelectValue placeholder="Add a field" /></SelectTrigger>
+                      <SelectContent>
+                        {draft.fields.filter((field) => !field.total && !templateTieBreakRules(draft).some((rule) => rule.fieldId === field.id)).map((field) => (
+                          <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </Field>
                 {templateTieBreakRules(draft).map((rule, index) => (
                   <div className="category-options" key={rule.fieldId}>
-                    <span>{index + 1}. {rule.label}</span>
+                    <span>{index + 1}. {draft.fields.find((field) => field.id === rule.fieldId)?.label ?? rule.fieldId}</span>
                     <Select
                       value={rule.direction}
                       onValueChange={(direction) => change({
-                        tieBreakRules: templateTieBreakRules(draft).map((current) =>
-                          current.fieldId === rule.fieldId
-                            ? { ...current, direction: direction as "higher" | "lower" }
-                            : current,
-                        ),
+                        tieBreakRules: templateTieBreakRules(draft).map((current) => current.fieldId === rule.fieldId ? { ...current, direction: direction as "higher" | "lower" } : current),
                       })}
                     >
-                      <SelectTrigger aria-label={`${rule.label} comparison`}>
+                      <SelectTrigger aria-label={`${draft.fields.find((field) => field.id === rule.fieldId)?.label ?? rule.fieldId} comparison`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -797,11 +779,7 @@ function Workspace({
                   </div>
                 ))}
                 <p className="helper">
-                  Available non-total IDs:{" "}
-                  {draft.fields
-                    .filter((f) => !f.total)
-                    .map((f) => f.id)
-                    .join(", ") || "none"}
+                  Tie-break fields are recorded as references to the scoring categories above.
                 </p>
               </TabsContent>
               <TabsContent value="advanced" className="form-body">

@@ -25,8 +25,7 @@ export type Template = {
   minPlayers: number;
   maxPlayers: number;
   fields: Field[];
-  tieBreakers: string[];
-  tieBreakRules?: { fieldId: string; label: string; direction: "higher" | "lower" }[];
+  tieBreakRules: { fieldId: string; direction: "higher" | "lower" }[];
   endCondition: string;
   roles?: { id: string; label: string }[];
   lowestWins?: boolean;
@@ -67,7 +66,7 @@ export const templates: Record<string, Template> = {
         max: 1,
       },
     ],
-    tieBreakers: [],
+    tieBreakRules: [],
     endCondition: "Confirm the final outcome for every player.",
   },
   "cooperative-win-loss-v1": {
@@ -92,7 +91,7 @@ export const templates: Record<string, Template> = {
         max: 1,
       },
     ],
-    tieBreakers: [],
+    tieBreakRules: [],
     endCondition: "Confirm the final outcome for the group.",
   },
   "manual-v1": {
@@ -113,7 +112,7 @@ export const templates: Record<string, Template> = {
         -100000,
       ),
     ],
-    tieBreakers: [],
+    tieBreakRules: [],
     endCondition: "Confirm that scoring is complete.",
   },
   "everdell-v1": {
@@ -161,7 +160,7 @@ export const templates: Record<string, Template> = {
         false,
       ),
     ],
-    tieBreakers: ["eventCount", "resources"],
+    tieBreakRules: [{ fieldId: "eventCount", direction: "higher" }, { fieldId: "resources", direction: "higher" }],
     endCondition:
       "All players have finished and final bonuses have been counted.",
   },
@@ -190,12 +189,11 @@ export const templates: Record<string, Template> = {
         false,
       ),
     ],
-    tieBreakers: ["spice", "solari", "water", "troops"],
     tieBreakRules: [
-      { fieldId: "spice", label: "Most spice", direction: "higher" },
-      { fieldId: "solari", label: "Most Solari", direction: "higher" },
-      { fieldId: "water", label: "Most water", direction: "higher" },
-      { fieldId: "troops", label: "Most troops in garrison", direction: "higher" },
+      { fieldId: "spice", direction: "higher" },
+      { fieldId: "solari", direction: "higher" },
+      { fieldId: "water", direction: "higher" },
+      { fieldId: "troops", direction: "higher" },
     ],
     endCondition:
       "At Recall, 10+ VP or an empty Conflict deck triggers the endgame. Resolve endgame Intrigue cards before final scoring. Reaching 10 VP does not immediately declare a winner.",
@@ -305,13 +303,13 @@ export function evaluate(
     const f = template.fields.find((f) => f.id === rule.fieldId)!;
     groups = groups.flatMap((group) => {
       if (group.length === 1) return [group];
-      used.push(rule.label);
+      used.push(f.label);
       for (const row of group) {
         const player = players.find((p) => p.id === row.playerId)!;
         const value = player.scores[rule.fieldId];
         if (value == null)
           throw new Error(
-            `${player.name}: enter ${rule.label.toLowerCase()} to resolve the tie.`,
+            `${player.name}: enter ${f.label.toLowerCase()} to resolve the tie.`,
           );
         validate(value, f, player.name);
         row.keys.push(value);
@@ -372,11 +370,7 @@ export function fieldsForPlayer(template: Template, player: Player) {
   );
 }
 export function templateTieBreakRules(template: Template) {
-  return template.tieBreakRules ?? template.tieBreakers.map((fieldId) => ({
-    fieldId,
-    label: template.fields.find((field) => field.id === fieldId)?.label ?? fieldId,
-    direction: "higher" as const,
-  }));
+  return template.tieBreakRules;
 }
 export function validateTemplate(t: Template) {
   if (t.engineVersion !== 1 && t.engineVersion !== 2)
@@ -387,14 +381,14 @@ export function validateTemplate(t: Template) {
     const outcome = t.fields.find((f) => f.id === "outcome");
     const totals = t.fields.filter((f) => f.total);
     if (t.resultMode === "race") {
-      if (totals.length !== 1 || totals[0].min < 1 || t.tieBreakers.length)
+      if (totals.length !== 1 || totals[0].min < 1 || t.tieBreakRules.length)
         throw new Error("Race templates require one finishing-position field.");
     } else if (
       !outcome ||
       outcome.min !== 0 ||
       outcome.max !== 1 ||
       outcome.roleIds?.length ||
-      t.tieBreakers.length ||
+      t.tieBreakRules.length ||
       (t.resultMode === "cooperative" &&
         (totals.length !== 1 || totals[0].id !== "outcome"))
     )
@@ -462,8 +456,7 @@ export function validateTemplate(t: Template) {
   if (
     new Set(templateTieBreakRules(t).map((rule) => rule.fieldId)).size !== templateTieBreakRules(t).length ||
     templateTieBreakRules(t).some(
-      (rule) => !rule.label.trim() ||
-        !t.fields.some((f) => f.id === rule.fieldId && !f.total && !f.roleIds?.length),
+      (rule) => !t.fields.some((f) => f.id === rule.fieldId && !f.total && !f.roleIds?.length),
     )
   )
     throw new Error("Tie-breakers must be shared categories, in order.");
