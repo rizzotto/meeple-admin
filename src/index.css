@@ -660,8 +660,8 @@ main {
   width: 100%;
   border-radius: 0;
   padding: 0 20px;
-  background: var(--card);
-  border-bottom: 1px solid var(--border);
+  background: transparent !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   height: 43px;
   justify-content: flex-start;
   gap: 18px;
@@ -677,12 +677,15 @@ main {
   border: 0;
   border-bottom: 2px solid transparent;
   color: var(--muted-foreground);
+  transition: color 140ms ease, border-color 140ms ease;
 }
 .editor-tabs [data-active],
 .editor-tabs [data-state="active"] {
   border-bottom-color: var(--primary) !important;
   color: var(--primary) !important;
 }
+.editor-content [data-slot="tabs-list"],
+.catalog-detail-tabs { background: transparent; box-shadow: none; }
 .form-body {
   padding: 23px 22px;
   display: flex;

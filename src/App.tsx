@@ -20,16 +20,13 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { makeFunctionReference } from "convex/server";
 import type { GenericId } from "convex/values";
 import {
-  BookOpen,
   ArrowLeft,
   ChevronRight,
   Dices,
   ExternalLink,
   FilePlus2,
-  Layers3,
   Languages,
   LogOut,
-  PanelLeftOpen,
   Plus,
   Search,
   ShieldCheck,
@@ -105,14 +102,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import {
   templateTieBreakRules,
   validateTemplate,
   type Template,
@@ -172,6 +161,9 @@ const gamePages = makeFunctionReference<
     continueCursor: string;
   }
 >("template_admin:gamesPage");
+const gameById = makeFunctionReference<"query", { gameId: string }, Game | null>(
+  "catalog:get",
+);
 const saveGame = makeFunctionReference<
   "mutation",
   { gameKey: string; data: Game },
@@ -410,13 +402,11 @@ function Workspace({
   rows,
   onSave,
   onGameKey,
-  onSignOut,
   fixedGame,
 }: {
   rows: Row[] | undefined;
   onSave?: (key: string, data: Template) => Promise<{ id: string; version: number }>;
   onGameKey?: (key: string) => void;
-  onSignOut?: () => void;
   fixedGame?: GameOption;
 }) {
   const [selected, setSelected] = useState<Row | null>(rows?.[0] ?? null);
@@ -648,70 +638,6 @@ function Workspace({
     <div className="shell">
       <main>
         <header className="topbar">
-          <Sheet>
-            <span className="topbar-navigation">
-              <SheetTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Open navigation"
-                  >
-                    <PanelLeftOpen />
-                  </Button>
-                }
-              />
-            </span>
-            <SheetContent side="left" className="sidebar-sheet">
-              <SheetHeader className="sr-only">
-                <SheetTitle>Workspace navigation</SheetTitle>
-                <SheetDescription>
-                  Navigate the Meeple administration workspace.
-                </SheetDescription>
-              </SheetHeader>
-              <aside className="sidebar">
-                <a
-                  className="wordmark"
-                  href="/"
-                  aria-label="Meeple Studio home"
-                >
-                  <span className="brand-icon">
-                    <Dices size={22} />
-                  </span>
-                  meeple<span className="studio">studio</span>
-                </a>
-                <div className="workspace-label">Workspace</div>
-                <div className="nav-active" title="Scoring templates">
-                  <Layers3 size={18} /> Scoring templates{" "}
-                  <Badge variant="secondary">{rows?.length ?? "…"}</Badge>
-                </div>
-                <div className="sidebar-note">
-                  <BookOpen size={18} />
-                  <strong>Good rules, great games.</strong>
-                  <p>
-                    Build score sheets that make the last turn as good as the
-                    first.
-                  </p>
-                </div>
-                <div className="sidebar-bottom">
-                  <span
-                    className={onSave ? "status-dot" : "status-dot preview"}
-                  />
-                  {onSave ? "Convex connected" : "Local preview"}
-                  {onSignOut && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Sign out"
-                      onClick={onSignOut}
-                    >
-                      <LogOut />
-                    </Button>
-                  )}
-                </div>
-              </aside>
-            </SheetContent>
-          </Sheet>
           <Badge variant="outline">
             <ShieldCheck size={13} /> Administrator
           </Badge>
@@ -856,7 +782,7 @@ function Workspace({
                     setJson(JSON.stringify(draft, null, 2));
                 }}
               >
-                <TabsList className="editor-tabs">
+                <TabsList variant="line" className="editor-tabs">
                   <TabsTrigger value="details">Details & scoring</TabsTrigger>
                   <TabsTrigger value="translations">Translations</TabsTrigger>
                   <TabsTrigger value="sourceLinks">Source links</TabsTrigger>
@@ -1512,13 +1438,42 @@ function Workspace({
 function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
   const convex = useConvex();
   const [missingOnly, setMissingOnly] = useState(false);
+  const gameIdFromUrl = () => {
+    const match = window.location.pathname.match(/^\/games\/([^/]+)\/?$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  };
   const [selected, setSelected] = useState<Game | null>(null);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(gameIdFromUrl);
   const [search, setSearch] = useState("");
   const { results, status, loadMore } = usePaginatedQuery(
     gamePages,
     { missingTemplateOnly: missingOnly, search },
     { initialNumItems: 30 },
   );
+  const routedGame = useQuery(
+    gameById,
+    selectedGameId ? { gameId: selectedGameId } : "skip",
+  );
+  useEffect(() => {
+    const syncFromUrl = () => setSelectedGameId(gameIdFromUrl());
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, []);
+  useEffect(() => {
+    if (selectedGameId && routedGame) {
+      setSelected(routedGame);
+    } else if (selectedGameId && results.length) {
+      const match = results.find(({ game }) => game.id === selectedGameId)?.game;
+      if (match) setSelected(match);
+    } else if (!selectedGameId) setSelected(null);
+  }, [results, selectedGameId, routedGame]);
+  const navigateToGame = (game: Game | null) => {
+    setSelected(game);
+    setSelectedGameId(game?.id ?? null);
+    const path = game ? `/games/${encodeURIComponent(game.id)}` : "/";
+    if (`${window.location.pathname}${window.location.search}` !== path)
+      window.history.pushState(null, "", path);
+  };
   const templateRows = useQuery(
     library,
     selected ? { gameKey: selected.id } : "skip",
@@ -1558,9 +1513,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
     <div className="shell">
       <main>
         <header className="topbar">
-          <span className="topbar-navigation">
-            <Dices size={19} /> Workspace <ChevronRight size={14} /> Games
-          </span>
+          <span />
           <div className="topbar-actions">
             <Badge variant="outline">
               <ShieldCheck size={13} /> Administrator
@@ -1617,7 +1570,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                   key={game.id}
                   variant="outline"
                   className="catalog-card"
-                  onClick={() => setSelected(game)}
+                  onClick={() => navigateToGame(game)}
                 >
                   <GameCover
                     image={game.image}
@@ -1688,7 +1641,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                   size="sm"
                   onClick={() => {
                     if (jsonDirty) setShowDiscardGame(true);
-                    else setSelected(null);
+                    else navigateToGame(null);
                   }}
                 >
                   <ArrowLeft data-icon="inline-start" /> All games
@@ -1714,7 +1667,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
               </Badge>
             </div>
             <Tabs defaultValue="template" key={selected.id}>
-              <TabsList className="editor-tabs catalog-detail-tabs">
+              <TabsList variant="line" className="editor-tabs catalog-detail-tabs">
                 <TabsTrigger value="template">Scoring template</TabsTrigger>
                 <TabsTrigger value="sources">Source links</TabsTrigger>
                 <TabsTrigger value="game-json">Advanced game JSON</TabsTrigger>
@@ -1833,7 +1786,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
               <AlertDialogAction
                 variant="destructive"
                 onClick={() => {
-                  setSelected(null);
+                  navigateToGame(null);
                   setShowDiscardGame(false);
                 }}
               >
