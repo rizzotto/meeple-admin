@@ -1,10 +1,26 @@
-import { Component, useEffect, useState, type ReactNode } from "react";
-import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
+import {
+  Component,
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useId,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import {
+  useAction,
+  useConvexAuth,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { makeFunctionReference } from "convex/server";
 import type { GenericId } from "convex/values";
 import {
   BookOpen,
+  ArrowLeft,
   ChevronRight,
   Dices,
   ExternalLink,
@@ -19,25 +35,85 @@ import {
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  Field as UIField,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldTitle,
+} from "@/components/ui/field";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
-import { templateTieBreakRules, validateTemplate, type Template } from "@/domain/scoring";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import {
+  templateTieBreakRules,
+  validateTemplate,
+  type Template,
+} from "@/domain/scoring";
 import type { Game } from "@/domain/model";
 import { officialTemplateSeeds } from "@/domain/template-seeds";
 
@@ -51,7 +127,14 @@ type Row = {
   builtIn: boolean;
   data: Template;
 };
-type GameOption = { id: string; title: string; image?: string; ludopediaId?: number; bggId?: number; data: Template | null };
+type GameOption = {
+  id: string;
+  title: string;
+  image?: string;
+  ludopediaId?: number;
+  bggId?: number;
+  data: Template | null;
+};
 type SourceProvider = "ludopedia" | "bgg";
 type ProviderLink = { id: number; title: string; url?: string };
 type SourceLinks = {
@@ -70,12 +153,31 @@ const gameSearch = makeFunctionReference<
   { search: string },
   GameOption[]
 >("template_admin:games");
+const gamePages = makeFunctionReference<
+  "query",
+  {
+    paginationOpts: { numItems: number; cursor: string | null };
+    missingTemplateOnly: boolean;
+  },
+  {
+    page: { game: Game; hasOfficialTemplate: boolean }[];
+    isDone: boolean;
+    continueCursor: string;
+  }
+>("template_admin:gamesPage");
+const saveGame = makeFunctionReference<
+  "mutation",
+  { gameKey: string; data: Game },
+  Game
+>("template_admin:saveGame");
 const library = makeFunctionReference<"query", { gameKey: string }, Row[]>(
   "template_admin:library",
 );
-const sourceLinksQuery = makeFunctionReference<"query", { gameKey: string }, SourceLinks | null>(
-  "template_admin:sourceLinks",
-);
+const sourceLinksQuery = makeFunctionReference<
+  "query",
+  { gameKey: string },
+  SourceLinks | null
+>("template_admin:sourceLinks");
 const sourceSearch = makeFunctionReference<
   "action",
   { gameKey: string; provider: SourceProvider; search: string },
@@ -83,7 +185,11 @@ const sourceSearch = makeFunctionReference<
 >("template_admin:searchSourceLinks");
 const confirmSourceLink = makeFunctionReference<
   "mutation",
-  { proposalId: GenericId<"gameMatchProposals">; candidateId: string; replace?: boolean },
+  {
+    proposalId: GenericId<"gameMatchProposals">;
+    candidateId: string;
+    replace?: boolean;
+  },
   Game
 >("catalog:confirmMatch");
 const saveTemplate = makeFunctionReference<
@@ -99,6 +205,10 @@ const permission = makeFunctionReference<
   Record<string, never>,
   boolean
 >("scoring_templates:canPublishOfficial");
+const tieBreakDirectionItems = [
+  { value: "higher", label: "Higher value wins" },
+  { value: "lower", label: "Lower value wins" },
+] as const;
 const fresh = (): Template => ({
   id: "new",
   version: 1,
@@ -216,22 +326,28 @@ function Connected() {
           }}
         >
           <input type="hidden" name="flow" value="signIn" />
-          <Label htmlFor="email">Email</Label>
-          <Input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-          />
-          <Label htmlFor="password">Password</Label>
-          <Input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-          />
+          <FieldGroup>
+            <UIField className="field">
+              <FieldLabel htmlFor="email">Email</FieldLabel>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+              />
+            </UIField>
+            <UIField className="field">
+              <FieldLabel htmlFor="password">Password</FieldLabel>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </UIField>
+          </FieldGroup>
           <Button type="submit" disabled={busy || googleBusy}>
             {busy ? "Signing in…" : "Sign in"}
           </Button>
@@ -263,49 +379,32 @@ function Authorized({ onSignOut }: { onSignOut: () => void }) {
   return <LiveWorkspace onSignOut={onSignOut} />;
 }
 function LiveWorkspace({ onSignOut }: { onSignOut: () => void }) {
-  const [gameKey, setGameKey] = useState("");
-  const rows = useQuery(library, { gameKey });
-  const save = useMutation(saveTemplate);
-  if (rows === undefined)
-    return (
-      <div className="gate" role="status">
-        Loading official templates…
-      </div>
-    );
-  return (
-    <Workspace
-      rows={rows}
-      onGameKey={setGameKey}
-      onSignOut={onSignOut}
-      onSave={async (key, data) => {
-        const id = await save({ gameKey: key, data });
-        setGameKey("");
-        return id;
-      }}
-    />
-  );
+  return <GameCatalog onSignOut={onSignOut} />;
 }
 function Workspace({
   rows,
   onSave,
   onGameKey,
   onSignOut,
+  fixedGame,
 }: {
   rows: Row[] | undefined;
   onSave?: (key: string, data: Template) => Promise<string>;
   onGameKey?: (key: string) => void;
   onSignOut?: () => void;
+  fixedGame?: GameOption;
 }) {
-  const [selected, setSelected] = useState<Row | null>(
-    rows?.[0] ?? null,
-  );
+  const [selected, setSelected] = useState<Row | null>(rows?.[0] ?? null);
   const [draft, setDraft] = useState<Template>(() =>
     selected ? structuredClone(selected.data) : fresh(),
   );
   const [gameKey, setGameKey] = useState(selected?.gameKey ?? "");
   const [gameTitle, setGameTitle] = useState(selected?.gameTitle ?? "");
   const [gameImage, setGameImage] = useState(selected?.image);
-  const [providerIds, setProviderIds] = useState({ ludopediaId: selected?.ludopediaId, bggId: selected?.bggId });
+  const [providerIds, setProviderIds] = useState({
+    ludopediaId: selected?.ludopediaId,
+    bggId: selected?.bggId,
+  });
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -342,7 +441,11 @@ function Workspace({
       setJsonDirty(false);
       setError("");
     });
-  const create = () => navigate(() => setPickerOpen(true));
+  const create = () =>
+    navigate(() => {
+      if (fixedGame) selectGame(fixedGame);
+      else setPickerOpen(true);
+    });
   const selectGame = (game: GameOption) => {
     const data = game.data ?? { ...fresh(), title: game.title };
     setSelected(
@@ -382,7 +485,10 @@ function Workspace({
       if (!onSave)
         throw new Error("Preview mode. Connect Convex and sign in to save.");
       setSaving(true);
-      const normalized = { ...draft, tieBreakers: templateTieBreakRules(draft) };
+      const normalized = {
+        ...draft,
+        tieBreakers: templateTieBreakRules(draft),
+      };
       delete normalized.tieBreakRules;
       const id = await onSave(gameKey.trim(), normalized);
       setDirty(false);
@@ -413,12 +519,16 @@ function Workspace({
     <div className="shell">
       <main>
         <header className="topbar">
-          <Dialog>
+          <Sheet>
             <span className="topbar-navigation">
-              <DialogTrigger
+              <SheetTrigger
                 render={
-                  <Button variant="ghost" size="icon" aria-label="Open navigation">
-                    <PanelLeftOpen size={18} />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Open navigation"
+                  >
+                    <PanelLeftOpen />
                   </Button>
                 }
               />
@@ -426,9 +536,19 @@ function Workspace({
                 Workspace <ChevronRight size={14} /> Templates
               </span>
             </span>
-            <DialogContent className="sidebar-dialog" aria-label="Workspace navigation">
+            <SheetContent side="left" className="sidebar-sheet">
+              <SheetHeader className="sr-only">
+                <SheetTitle>Workspace navigation</SheetTitle>
+                <SheetDescription>
+                  Navigate the Meeple administration workspace.
+                </SheetDescription>
+              </SheetHeader>
               <aside className="sidebar">
-                <a className="wordmark" href="/" aria-label="Meeple Studio home">
+                <a
+                  className="wordmark"
+                  href="/"
+                  aria-label="Meeple Studio home"
+                >
                   <span className="brand-icon">
                     <Dices size={22} />
                   </span>
@@ -443,11 +563,14 @@ function Workspace({
                   <BookOpen size={18} />
                   <strong>Good rules, great games.</strong>
                   <p>
-                    Build score sheets that make the last turn as good as the first.
+                    Build score sheets that make the last turn as good as the
+                    first.
                   </p>
                 </div>
                 <div className="sidebar-bottom">
-                  <span className={onSave ? "status-dot" : "status-dot preview"} />
+                  <span
+                    className={onSave ? "status-dot" : "status-dot preview"}
+                  />
                   {onSave ? "Convex connected" : "Local preview"}
                   {onSignOut && (
                     <Button
@@ -456,13 +579,13 @@ function Workspace({
                       aria-label="Sign out"
                       onClick={onSignOut}
                     >
-                      <LogOut size={16} />
+                      <LogOut />
                     </Button>
                   )}
                 </div>
-            </aside>
-          </DialogContent>
-          </Dialog>
+              </aside>
+            </SheetContent>
+          </Sheet>
           <Badge variant="outline">
             <ShieldCheck size={13} /> Administrator
           </Badge>
@@ -471,388 +594,563 @@ function Workspace({
           <div>
             <div className="eyebrow">The finishing touches</div>
             <h1>Scoring templates</h1>
-            <p>One official sheet per base game, plus additive sheets for its expansions. Three defaults for every table.</p>
+            <p>
+              One official sheet per base game, plus additive sheets for its
+              expansions. Three defaults for every table.
+            </p>
           </div>
           <Button onClick={create}>
-            <Plus size={16} /> New template
+            <Plus data-icon="inline-start" /> New template
           </Button>
         </div>
         {!onSave && (
-          <div className="preview-banner">
-            You’re exploring the template editor. Add VITE_CONVEX_URL to connect
-            your Meeple backend and save.
-          </div>
+          <Alert className="preview-banner">
+            <Dices />
+            <AlertDescription>
+              You’re exploring the template editor. Add VITE_CONVEX_URL to
+              connect your Meeple backend and save.
+            </AlertDescription>
+          </Alert>
         )}
         <div className="workbench">
-          <section className="library">
-            <div className="library-top">
-              <h2>Library</h2>
-              <span>{items.length} templates</span>
-            </div>
-            <div className="search">
-              <Search size={16} />
-              <Input
-                aria-label="Search templates"
-                placeholder="Find a template…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </div>
-            <div className="game-filter">
-              <Button variant="ghost" size="sm" onClick={() => onGameKey?.("")}>
-                Show all
-              </Button>
-            </div>
-            <div className="template-list">
-              {rows === undefined ? (
-                <p role="status" className="empty">
-                  Loading templates…
-                </p>
-              ) : !items.length ? (
-                <div className="empty">
+          <Card className="library">
+            <CardHeader className="library-top">
+              <CardTitle>Library</CardTitle>
+              <CardAction>
+                <Badge variant="secondary">{items.length} templates</Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="library-main">
+              <InputGroup className="search">
+                <InputGroupAddon>
                   <Search />
-                  <h3>No templates found</h3>
-                  <p>Try another search or add a template.</p>
-                  <Button variant="outline" onClick={create}>
-                    New template
-                  </Button>
-                </div>
-              ) : (
-                items.map((row) => (
-                  <button
-                    key={row.key}
-                    className={`template-row ${selected?.key === row.key ? "selected" : ""}`}
-                    onClick={() => choose(row)}
+                </InputGroupAddon>
+                <InputGroupInput
+                  aria-label="Search templates"
+                  placeholder="Find a template…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </InputGroup>
+              <div className="game-filter">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onGameKey?.("")}
+                >
+                  Show all
+                </Button>
+              </div>
+              <div className="template-list">
+                {rows === undefined ? (
+                  <div
+                    className="loading-state"
+                    role="status"
+                    aria-label="Loading templates"
                   >
-                    <GameCover key={row.image ?? row.key} image={row.image} title={row.gameTitle} />
-                    <span className="row-text">
-                      <strong>{row.data.title}</strong>
-                      <small>
-                        {row.data.fields.length} categories ·{" "}
-                        {row.data.minPlayers}–{row.data.maxPlayers} players
-                      </small>
-                      <span className="row-edition">{row.data.edition}</span>
-                    </span>
-                    <ChevronRight size={14} />
-                  </button>
-                ))
-              )}
-            </div>
-            <div className="library-footer">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-4 w-1/2" />
+                    <Skeleton className="h-4 w-2/3" />
+                  </div>
+                ) : !items.length ? (
+                  <Empty className="empty">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <Search />
+                      </EmptyMedia>
+                      <EmptyTitle>No templates found</EmptyTitle>
+                      <EmptyDescription>
+                        Try another search or add a template.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                    <EmptyContent>
+                      <Button variant="outline" onClick={create}>
+                        New template
+                      </Button>
+                    </EmptyContent>
+                  </Empty>
+                ) : (
+                  items.map((row) => (
+                    <Button
+                      key={row.key}
+                      variant="ghost"
+                      className={cn(
+                        "template-row",
+                        selected?.key === row.key && "selected",
+                      )}
+                      onClick={() => choose(row)}
+                    >
+                      <GameCover
+                        key={row.image ?? row.key}
+                        image={row.image}
+                        title={row.gameTitle}
+                      />
+                      <span className="row-text">
+                        <strong>{row.data.title}</strong>
+                        <small>
+                          {row.data.fields.length} categories ·{" "}
+                          {row.data.minPlayers}–{row.data.maxPlayers} players
+                        </small>
+                        <span className="row-edition">{row.data.edition}</span>
+                      </span>
+                      <ChevronRight size={14} />
+                    </Button>
+                  ))
+                )}
+              </div>
+            </CardContent>
+            <CardFooter className="library-footer">
               <span className="status-dot" />
               {onSave
                 ? "Changes sync in real time"
                 : "Built-in template preview"}
-            </div>
-          </section>
-          <section className="editor">
-            <div className="editor-top">
+            </CardFooter>
+          </Card>
+          <Card className="editor">
+            <CardHeader className="editor-top">
               <div>
                 <Badge variant="secondary">
                   {selected ? "Official template" : "New official template"}
                 </Badge>
-                <h2>{draft.title || "Untitled template"}</h2>
+                <CardTitle>{draft.title || "Untitled template"}</CardTitle>
+                <CardDescription>
+                  Maintain the official scoring rules for this game.
+                </CardDescription>
               </div>
-            </div>
-            <Tabs
-              defaultValue="details"
-              onValueChange={(value) => {
-                if (value === "advanced" && !jsonDirty)
-                  setJson(JSON.stringify(draft, null, 2));
-              }}
-            >
-              <TabsList className="editor-tabs">
-                <TabsTrigger value="details">Details & scoring</TabsTrigger>
-                <TabsTrigger value="sourceLinks">Source links</TabsTrigger>
-                <TabsTrigger value="advanced">Advanced JSON</TabsTrigger>
-              </TabsList>
-              <TabsContent value="details" className="form-body">
-                <div className="section-heading">
-                  <span className="section-number">01</span>
-                  <div>
-                    <h3>Template details</h3>
-                    <p>The essentials, before the first turn.</p>
+            </CardHeader>
+            <CardContent className="editor-content">
+              <Tabs
+                defaultValue="details"
+                onValueChange={(value) => {
+                  if (value === "advanced" && !jsonDirty)
+                    setJson(JSON.stringify(draft, null, 2));
+                }}
+              >
+                <TabsList className="editor-tabs">
+                  <TabsTrigger value="details">Details & scoring</TabsTrigger>
+                  <TabsTrigger value="sourceLinks">Source links</TabsTrigger>
+                  <TabsTrigger value="advanced">Advanced JSON</TabsTrigger>
+                </TabsList>
+                <TabsContent value="details" className="form-body">
+                  <div className="section-heading">
+                    <span className="section-number">01</span>
+                    <div>
+                      <h3>Template details</h3>
+                      <p>The essentials, before the first turn.</p>
+                    </div>
                   </div>
-                </div>
-                <Field label="Template name">
-                  <Input
-                    maxLength={80}
-                    value={draft.title}
-                    onChange={(e) => change({ title: e.target.value })}
-                  />
-                </Field>
-                <div className="game-identity-preview" aria-label="Game identifiers">
-                  <IdentityValue label="Meeple ID" value={gameKey} />
-                  <IdentityValue label="Ludopedia ID" value={providerIds.ludopediaId === undefined ? "—" : String(providerIds.ludopediaId)} />
-                  <IdentityValue label="BGG ID" value={providerIds.bggId === undefined ? "—" : String(providerIds.bggId)} />
-                </div>
-                <div className="two-col">
-                  <Field label="Edition">
-                    <Input
-                      maxLength={200}
-                      value={draft.edition}
-                      onChange={(e) => change({ edition: e.target.value })}
-                    />
-                  </Field>
-                  <div className="field">
-                    <Label htmlFor="official-game">Game</Label>
-                    <Input id="official-game" value={gameTitle} readOnly />
-                    <span className="helper">
-                      {gameKey || "Select a game when creating a template"}
-                    </span>
-                  </div>
-                </div>
-                <div className="two-col">
-                  <Field label="Minimum players">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={12}
-                      value={draft.minPlayers}
-                      onChange={(e) =>
-                        change({ minPlayers: Number(e.target.value) })
-                      }
-                    />
-                  </Field>
-                  <Field label="Maximum players">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={12}
-                      value={draft.maxPlayers}
-                      onChange={(e) =>
-                        change({ maxPlayers: Number(e.target.value) })
-                      }
-                    />
-                  </Field>
-                </div>
-                <Field label="Rules reference">
-                  <Input
-                    placeholder="https://…"
-                    type="url"
-                    value={draft.source}
-                    onChange={(e) => change({ source: e.target.value })}
-                  />
-                </Field>
-                <Field label="When does scoring end?">
-                  <Textarea
-                    maxLength={1000}
-                    value={draft.endCondition}
-                    onChange={(e) => change({ endCondition: e.target.value })}
-                  />
-                </Field>
-                <div className="switch-row">
-                  <div>
-                    <strong>Lowest score wins</strong>
-                    <p>Leave off for highest-score games.</p>
-                  </div>
-                  <Switch
-                    checked={draft.lowestWins ?? false}
-                    onCheckedChange={(v) => change({ lowestWins: v })}
-                  />
-                </div>
-                <div className="section-heading category-heading">
-                  <span className="section-number">02</span>
-                  <div>
-                    <h3>Scoring categories</h3>
-                    <p>One field for each thing worth counting.</p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={draft.fields.length >= 30}
-                    onClick={() =>
-                      change({
-                        fields: [
-                          ...draft.fields,
-                          {
-                            id: `field_${Date.now()}`,
-                            label: "New category",
-                            hint: "",
-                            total: true,
-                            min: 0,
-                          },
-                        ],
-                      })
-                    }
-                  >
-                    <Plus size={14} /> Add
-                  </Button>
-                </div>
-                {draft.fields.map((field, index) => (
-                  <div className="category" key={field.id}>
-                    <div className="category-title">
-                      <span>{String(index + 1).padStart(2, "0")}</span>
+                  <FieldGroup className="template-fields">
+                    <Field label="Template name">
                       <Input
-                        aria-label={`Category ${index + 1} label`}
                         maxLength={80}
-                        value={field.label}
-                        onChange={(e) =>
-                          change({
-                            fields: draft.fields.map((f, i) =>
-                              i === index ? { ...f, label: e.target.value } : f,
-                            ),
-                          })
+                        value={draft.title}
+                        onChange={(e) => change({ title: e.target.value })}
+                      />
+                    </Field>
+                    <div
+                      className="game-identity-preview"
+                      aria-label="Game identifiers"
+                    >
+                      <IdentityValue label="Meeple ID" value={gameKey} />
+                      <IdentityValue
+                        label="Ludopedia ID"
+                        value={
+                          providerIds.ludopediaId === undefined
+                            ? "—"
+                            : String(providerIds.ludopediaId)
                         }
                       />
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        disabled={draft.fields.length === 1}
-                        aria-label={`Remove ${field.label}`}
-                        onClick={() =>
-                          change({
-                            fields: draft.fields.filter((_, i) => i !== index),
-                          })
+                      <IdentityValue
+                        label="BGG ID"
+                        value={
+                          providerIds.bggId === undefined
+                            ? "—"
+                            : String(providerIds.bggId)
                         }
-                      >
-                        <Trash2 size={15} />
-                      </Button>
+                      />
                     </div>
-                    <Input
-                      aria-label={`${field.label} hint`}
-                      placeholder="A helpful hint for the table…"
-                      maxLength={300}
-                      value={field.hint}
-                      onChange={(e) =>
+                    <div className="two-col">
+                      <Field label="Edition">
+                        <Input
+                          maxLength={200}
+                          value={draft.edition}
+                          onChange={(e) => change({ edition: e.target.value })}
+                        />
+                      </Field>
+                      <UIField className="field">
+                        <FieldLabel htmlFor="official-game">Game</FieldLabel>
+                        <Input id="official-game" value={gameTitle} readOnly />
+                        <FieldDescription className="helper">
+                          {gameKey || "Select a game when creating a template"}
+                        </FieldDescription>
+                      </UIField>
+                    </div>
+                    <div className="two-col">
+                      <Field label="Minimum players">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={12}
+                          value={draft.minPlayers}
+                          onChange={(e) =>
+                            change({ minPlayers: Number(e.target.value) })
+                          }
+                        />
+                      </Field>
+                      <Field label="Maximum players">
+                        <Input
+                          type="number"
+                          min={1}
+                          max={12}
+                          value={draft.maxPlayers}
+                          onChange={(e) =>
+                            change({ maxPlayers: Number(e.target.value) })
+                          }
+                        />
+                      </Field>
+                    </div>
+                    <Field label="Rules reference">
+                      <Input
+                        placeholder="https://…"
+                        type="url"
+                        value={draft.source}
+                        onChange={(e) => change({ source: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="When does scoring end?">
+                      <Textarea
+                        maxLength={1000}
+                        value={draft.endCondition}
+                        onChange={(e) =>
+                          change({ endCondition: e.target.value })
+                        }
+                      />
+                    </Field>
+                  </FieldGroup>
+                  <UIField orientation="horizontal" className="switch-row">
+                    <FieldContent>
+                      <FieldTitle id="lowest-wins-label">
+                        Lowest score wins
+                      </FieldTitle>
+                      <FieldDescription>
+                        Leave off for highest-score games.
+                      </FieldDescription>
+                    </FieldContent>
+                    <Switch
+                      aria-labelledby="lowest-wins-label"
+                      checked={draft.lowestWins ?? false}
+                      onCheckedChange={(v) => change({ lowestWins: v })}
+                    />
+                  </UIField>
+                  <div className="section-heading category-heading">
+                    <span className="section-number">02</span>
+                    <div>
+                      <h3>Scoring categories</h3>
+                      <p>One field for each thing worth counting.</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={draft.fields.length >= 30}
+                      onClick={() =>
                         change({
-                          fields: draft.fields.map((f, i) =>
-                            i === index ? { ...f, hint: e.target.value } : f,
-                          ),
+                          fields: [
+                            ...draft.fields,
+                            {
+                              id: `field_${Date.now()}`,
+                              label: "New category",
+                              hint: "",
+                              total: true,
+                              min: 0,
+                            },
+                          ],
                         })
                       }
-                    />
-                    <div className="category-options">
-                      <label>
-                        Min{" "}
+                    >
+                      <Plus data-icon="inline-start" /> Add
+                    </Button>
+                  </div>
+                  {draft.fields.map((field, index) => (
+                    <FieldSet className="category" key={field.id}>
+                      <FieldLegend className="sr-only">
+                        Scoring category {index + 1}
+                      </FieldLegend>
+                      <div className="category-title">
+                        <span>{String(index + 1).padStart(2, "0")}</span>
                         <Input
-                          aria-label={`${field.label} minimum`}
-                          type="number"
-                          value={field.min}
+                          aria-label={`Category ${index + 1} label`}
+                          maxLength={80}
+                          value={field.label}
                           onChange={(e) =>
                             change({
                               fields: draft.fields.map((f, i) =>
                                 i === index
-                                  ? { ...f, min: Number(e.target.value) }
+                                  ? { ...f, label: e.target.value }
                                   : f,
                               ),
                             })
                           }
                         />
-                      </label>
-                      <label>
-                        Max{" "}
-                        <Input
-                          aria-label={`${field.label} maximum`}
-                          type="number"
-                          placeholder="None"
-                          value={field.max ?? ""}
-                          onChange={(e) =>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={draft.fields.length === 1}
+                          aria-label={`Remove ${field.label}`}
+                          onClick={() =>
                             change({
-                              fields: draft.fields.map((f, i) => {
-                                if (i !== index) return f;
-                                const next = { ...f };
-                                if (e.target.value === "") delete next.max;
-                                else next.max = Number(e.target.value);
-                                return next;
-                              }),
-                            })
-                          }
-                        />
-                      </label>
-                      <label>
-                        <Switch
-                          checked={field.total}
-                          onCheckedChange={(total) =>
-                            change({
-                              fields: draft.fields.map((f, i) =>
-                                i === index ? { ...f, total } : f,
+                              fields: draft.fields.filter(
+                                (_, i) => i !== index,
                               ),
                             })
                           }
-                        />{" "}
-                  In total
-                      </label>
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                      <Input
+                        aria-label={`${field.label} hint`}
+                        placeholder="A helpful hint for the table…"
+                        maxLength={300}
+                        value={field.hint}
+                        onChange={(e) =>
+                          change({
+                            fields: draft.fields.map((f, i) =>
+                              i === index ? { ...f, hint: e.target.value } : f,
+                            ),
+                          })
+                        }
+                      />
+                      <div className="category-options">
+                        <label>
+                          Min{" "}
+                          <Input
+                            aria-label={`${field.label} minimum`}
+                            type="number"
+                            value={field.min}
+                            onChange={(e) =>
+                              change({
+                                fields: draft.fields.map((f, i) =>
+                                  i === index
+                                    ? { ...f, min: Number(e.target.value) }
+                                    : f,
+                                ),
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          Max{" "}
+                          <Input
+                            aria-label={`${field.label} maximum`}
+                            type="number"
+                            placeholder="None"
+                            value={field.max ?? ""}
+                            onChange={(e) =>
+                              change({
+                                fields: draft.fields.map((f, i) => {
+                                  if (i !== index) return f;
+                                  const next = { ...f };
+                                  if (e.target.value === "") delete next.max;
+                                  else next.max = Number(e.target.value);
+                                  return next;
+                                }),
+                              })
+                            }
+                          />
+                        </label>
+                        <div className="category-total">
+                          <Switch
+                            aria-label={`Include ${field.label} in total`}
+                            checked={field.total}
+                            onCheckedChange={(total) =>
+                              change({
+                                fields: draft.fields.map((f, i) =>
+                                  i === index ? { ...f, total } : f,
+                                ),
+                              })
+                            }
+                          />
+                          <span>In total</span>
+                        </div>
+                      </div>
+                    </FieldSet>
+                  ))}
+                  <div className="section-heading category-heading">
+                    <span className="section-number">03</span>
+                    <div>
+                      <h3>Tie-breakers</h3>
+                      <p>Resolve tied totals in priority order.</p>
                     </div>
-                  </div>
-                ))}
-                <Field label="Tie-breakers, in priority order">
-                  <Button variant="outline" onClick={() => change({ tieBreakers: [...templateTieBreakRules(draft), { id: `tie_${Date.now()}`, label: "New tie-breaker", hint: "", total: false, min: 0, direction: "higher" }] })}><Plus size={14} /> Add tie-breaker</Button>
-                </Field>
-                {templateTieBreakRules(draft).map((rule, index) => (
-                  <div className="category" key={rule.id}>
-                    <div className="category-title"><span>{String(index + 1).padStart(2, "0")}</span><Input aria-label={`Tie-breaker ${index + 1} label`} value={rule.label} onChange={(e) => change({ tieBreakers: templateTieBreakRules(draft).map((current) => current.id === rule.id ? { ...current, label: e.target.value } : current) })} /><Button variant="ghost" size="icon" aria-label={`Remove ${rule.label}`} onClick={() => change({ tieBreakers: templateTieBreakRules(draft).filter((current) => current.id !== rule.id) })}><Trash2 size={15} /></Button></div>
-                    <Input aria-label={`${rule.label} hint`} value={rule.hint} placeholder="What should players record?" onChange={(e) => change({ tieBreakers: templateTieBreakRules(draft).map((current) => current.id === rule.id ? { ...current, hint: e.target.value } : current) })} />
-                    <Select
-                      value={rule.direction}
-                      onValueChange={(direction) => change({
-                        tieBreakers: templateTieBreakRules(draft).map((current) => current.id === rule.id ? { ...current, direction: direction as "higher" | "lower" } : current),
-                      })}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        change({
+                          tieBreakers: [
+                            ...templateTieBreakRules(draft),
+                            {
+                              id: `tie_${Date.now()}`,
+                              label: "New tie-breaker",
+                              hint: "",
+                              total: false,
+                              min: 0,
+                              direction: "higher",
+                            },
+                          ],
+                        })
+                      }
                     >
-                      <SelectTrigger aria-label={`${rule.label} comparison`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="higher">Higher value wins</SelectItem>
-                        <SelectItem value="lower">Lower value wins</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <Plus data-icon="inline-start" /> Add tie-breaker
+                    </Button>
                   </div>
-                ))}
-                <p className="helper">
-                  These inputs resolve tied scores and are excluded from totals.
-                </p>
-              </TabsContent>
-              <TabsContent value="advanced" className="form-body">
-                <p className="helper">
-                  Edit the full Meeple template, including roles, expansions,
-                  and outcome rules. Apply before saving. Saving is disabled
-                  while JSON changes are unapplied.
-                </p>
-                <Textarea
-                  aria-label="Template JSON"
-                  className="json-editor"
-                  value={json}
-                  onChange={(e) => {
-                    setJson(e.target.value);
-                    setJsonDirty(true);
-                    setDirty(true);
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    try {
-                      const data = JSON.parse(json) as Template;
-                      validateTemplate(data);
-                      change(data);
-                      setJsonDirty(false);
-                      toast.success("JSON applied");
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : "Invalid JSON");
-                    }
-                  }}
+                  {templateTieBreakRules(draft).map((rule, index) => (
+                    <FieldSet className="category" key={rule.id}>
+                      <FieldLegend className="sr-only">
+                        Tie-breaker {index + 1}
+                      </FieldLegend>
+                      <div className="category-title">
+                        <span>{String(index + 1).padStart(2, "0")}</span>
+                        <Input
+                          aria-label={`Tie-breaker ${index + 1} label`}
+                          value={rule.label}
+                          onChange={(e) =>
+                            change({
+                              tieBreakers: templateTieBreakRules(draft).map(
+                                (current) =>
+                                  current.id === rule.id
+                                    ? { ...current, label: e.target.value }
+                                    : current,
+                              ),
+                            })
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Remove ${rule.label}`}
+                          onClick={() =>
+                            change({
+                              tieBreakers: templateTieBreakRules(draft).filter(
+                                (current) => current.id !== rule.id,
+                              ),
+                            })
+                          }
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                      <Input
+                        aria-label={`${rule.label} hint`}
+                        value={rule.hint}
+                        placeholder="What should players record?"
+                        onChange={(e) =>
+                          change({
+                            tieBreakers: templateTieBreakRules(draft).map(
+                              (current) =>
+                                current.id === rule.id
+                                  ? { ...current, hint: e.target.value }
+                                  : current,
+                            ),
+                          })
+                        }
+                      />
+                      <Select
+                        items={tieBreakDirectionItems}
+                        value={rule.direction}
+                        onValueChange={(direction) =>
+                          change({
+                            tieBreakers: templateTieBreakRules(draft).map(
+                              (current) =>
+                                current.id === rule.id
+                                  ? {
+                                      ...current,
+                                      direction: direction as
+                                        "higher" | "lower",
+                                    }
+                                  : current,
+                            ),
+                          })
+                        }
+                      >
+                        <SelectTrigger aria-label={`${rule.label} comparison`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="higher">
+                              Higher value wins
+                            </SelectItem>
+                            <SelectItem value="lower">
+                              Lower value wins
+                            </SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                    </FieldSet>
+                  ))}
+                  <p className="helper">
+                    These inputs resolve tied scores and are excluded from
+                    totals.
+                  </p>
+                </TabsContent>
+                <TabsContent value="advanced" className="form-body">
+                  <p className="helper">
+                    Edit the full Meeple template, including roles, expansions,
+                    and outcome rules. Apply before saving. Saving is disabled
+                    while JSON changes are unapplied.
+                  </p>
+                  <Textarea
+                    aria-label="Template JSON"
+                    className="json-editor"
+                    value={json}
+                    onChange={(e) => {
+                      setJson(e.target.value);
+                      setJsonDirty(true);
+                      setDirty(true);
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      try {
+                        const data = JSON.parse(json) as Template;
+                        validateTemplate(data);
+                        change(data);
+                        setJsonDirty(false);
+                        toast.success("JSON applied");
+                      } catch (e) {
+                        setError(
+                          e instanceof Error ? e.message : "Invalid JSON",
+                        );
+                      }
+                    }}
+                  >
+                    Apply JSON
+                  </Button>
+                </TabsContent>
+                <TabsContent
+                  value="sourceLinks"
+                  className="form-body source-link-tab"
                 >
-                  Apply JSON
-                </Button>
-              </TabsContent>
-              <TabsContent value="sourceLinks" className="form-body source-link-tab">
-                <SourceLinksPanel
-                  gameKey={gameKey}
-                  enabled={Boolean(onSave)}
-                  onLinked={(game) => setProviderIds({
-                    ludopediaId: game.ludopediaId,
-                    bggId: game.bggId,
-                  })}
-                  onImageChange={setGameImage}
-                />
-              </TabsContent>
-            </Tabs>
-            <div className="save-bar">
+                  <SourceLinksPanel
+                    gameKey={gameKey}
+                    enabled={Boolean(onSave)}
+                    onLinked={(game) =>
+                      setProviderIds({
+                        ludopediaId: game.ludopediaId,
+                        bggId: game.bggId,
+                      })
+                    }
+                    onImageChange={setGameImage}
+                  />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+            <CardFooter className="save-bar">
               {error && (
-                <p role="alert" className="error">
-                  {error}
-                </p>
+                <Alert variant="destructive" className="error-alert">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
               )}
               <div>
                 <span className={dirty ? "status-dot amber" : "status-dot"} />
@@ -861,7 +1159,7 @@ function Workspace({
                   disabled={saving || jsonDirty}
                   onClick={() => void save()}
                 >
-                  <Save size={15} />
+                  <Save data-icon="inline-start" />
                   {saving ? "Saving…" : "Save official template"}
                 </Button>
               </div>
@@ -869,15 +1167,19 @@ function Workspace({
                 One sheet per selected game or expansion. Base game sheets can
                 be combined with additive expansion sections.
               </small>
-            </div>
-          </section>
+            </CardFooter>
+          </Card>
           <aside className="preview-panel">
             <div className="preview-label">
               Live preview <span />
             </div>
             <Card className="score-sheet">
               <CardContent>
-                <GameCover image={gameImage} title={gameTitle} className="preview-game-cover" />
+                <GameCover
+                  image={gameImage}
+                  title={gameTitle}
+                  className="preview-game-cover"
+                />
                 <span className="sheet-edition">{draft.edition}</span>
                 <h2>{draft.title}</h2>
                 <p>
@@ -894,7 +1196,14 @@ function Workspace({
                     <span className="score-box">—</span>
                   </div>
                 ))}
-                {templateTieBreakRules(draft).length ? <div className="helper">Tie-break priority: {templateTieBreakRules(draft).map((f) => f.label).join(" → ")}</div> : null}
+                {templateTieBreakRules(draft).length ? (
+                  <div className="helper">
+                    Tie-break priority:{" "}
+                    {templateTieBreakRules(draft)
+                      .map((f) => f.label)
+                      .join(" → ")}
+                  </div>
+                ) : null}
                 <div className="total-line">
                   <strong>Total score</strong>
                   <strong>0</strong>
@@ -930,12 +1239,13 @@ function Workspace({
           <DialogHeader>
             <DialogTitle>Choose a game</DialogTitle>
             <DialogDescription>
-              Select a base game or expansion to create or edit its official scoring section.
+              Select a base game or expansion to create or edit its official
+              scoring section.
             </DialogDescription>
           </DialogHeader>
-          {onSave ? (
+          {onSave && !fixedGame ? (
             <LiveGamePicker onSelect={selectGame} />
-          ) : (
+          ) : !onSave ? (
             <GamePicker
               games={demo.map((row) => ({
                 id: row.gameKey,
@@ -947,27 +1257,27 @@ function Workspace({
               }))}
               onSelect={selectGame}
             />
+          ) : (
+            <EmptyState description="This template is attached to the selected game." />
           )}
         </DialogContent>
       </Dialog>
-      <Dialog
+      <AlertDialog
         open={Boolean(pending)}
         onOpenChange={(open) => {
           if (!open) setPending(null);
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Discard unsaved changes?</DialogTitle>
-            <DialogDescription>
-              Your current edits haven’t been saveed.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPending(null)}>
-              Keep editing
-            </Button>
-            <Button
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your current edits haven’t been saved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction
               variant="destructive"
               onClick={() => {
                 pending?.();
@@ -975,19 +1285,388 @@ function Workspace({
               }}
             >
               Discard changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
+  const [missingOnly, setMissingOnly] = useState(false);
+  const [selected, setSelected] = useState<Game | null>(null);
+  const [search, setSearch] = useState("");
+  const { results, status, loadMore } = usePaginatedQuery(
+    gamePages,
+    { missingTemplateOnly: missingOnly },
+    { initialNumItems: 30 },
+  );
+  const filtered = results.filter(({ game }) =>
+    game.title.toLowerCase().includes(search.toLowerCase()),
+  );
+  const templateRows = useQuery(
+    library,
+    selected ? { gameKey: selected.id } : "skip",
+  );
+  const saveTemplateMutation = useMutation(saveTemplate);
+  const saveGameMutation = useMutation(saveGame);
+  const [json, setJson] = useState("");
+  const [jsonDirty, setJsonDirty] = useState(false);
+  const [jsonOwnerId, setJsonOwnerId] = useState(selected?.id);
+  const [showDiscardGame, setShowDiscardGame] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  if (selected?.id !== jsonOwnerId) {
+    setJsonOwnerId(selected?.id);
+    setJson(selected ? JSON.stringify(selected, null, 2) : "");
+    setJsonDirty(false);
+    setError("");
+  }
+  useEffect(() => {
+    const handler = (event: BeforeUnloadEvent) => {
+      if (jsonDirty) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [jsonDirty]);
+  const fixedGame: GameOption | undefined = selected
+    ? {
+        id: selected.id,
+        title: selected.title,
+        ...(selected.image ? { image: selected.image } : {}),
+        ...(selected.ludopediaId ? { ludopediaId: selected.ludopediaId } : {}),
+        ...(selected.bggId ? { bggId: selected.bggId } : {}),
+        data: templateRows?.[0]?.data ?? null,
+      }
+    : undefined;
   return (
-    <Label className="field">
-      <span>{label}</span>
-      {children}
-    </Label>
+    <div className="shell">
+      <main>
+        <header className="topbar">
+          <span className="topbar-navigation">
+            <Dices size={19} /> Workspace <ChevronRight size={14} /> Games
+          </span>
+          <div className="topbar-actions">
+            <Badge variant="outline">
+              <ShieldCheck size={13} /> Administrator
+            </Badge>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Sign out"
+              onClick={onSignOut}
+            >
+              <LogOut />
+            </Button>
+          </div>
+        </header>
+        {!selected ? (
+          <>
+            <div className="page-heading">
+              <div>
+                <div className="eyebrow">Catalog management</div>
+                <h1>Games</h1>
+                <p>
+                  Browse registered games and manage their templates and catalog
+                  data.
+                </p>
+              </div>
+              <Badge variant="secondary">{results.length} loaded</Badge>
+            </div>
+            <div className="catalog-toolbar">
+              <InputGroup className="catalog-search">
+                <InputGroupAddon>
+                  <Search />
+                </InputGroupAddon>
+                <InputGroupInput
+                  aria-label="Search games"
+                  placeholder="Search loaded games…"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </InputGroup>
+              <UIField orientation="horizontal" className="missing-toggle">
+                <Switch
+                  aria-labelledby="missing-only-label"
+                  checked={missingOnly}
+                  onCheckedChange={setMissingOnly}
+                />
+                <FieldTitle id="missing-only-label">
+                  Missing templates only
+                </FieldTitle>
+              </UIField>
+            </div>
+            <section className="catalog-grid" aria-label="Registered games">
+              {filtered.map(({ game, hasOfficialTemplate }) => (
+                <Button
+                  key={game.id}
+                  variant="outline"
+                  className="catalog-card"
+                  onClick={() => setSelected(game)}
+                >
+                  <GameCover
+                    image={game.image}
+                    title={game.title}
+                    className="catalog-cover"
+                  />
+                  <span className="catalog-card-copy">
+                    <strong>{game.title}</strong>
+                    <small>
+                      {game.kind === "expansion"
+                        ? "Expansion"
+                        : game.kind === "edition"
+                          ? "Edition"
+                          : "Base game"}{" "}
+                      · {game.minPlayers ?? "?"}–{game.maxPlayers ?? "?"}{" "}
+                      players
+                    </small>
+                    <code>{game.id}</code>
+                  </span>
+                  <Badge
+                    variant={hasOfficialTemplate ? "secondary" : "outline"}
+                  >
+                    {hasOfficialTemplate ? "Template set" : "No template"}
+                  </Badge>
+                </Button>
+              ))}
+              {!filtered.length && status !== "LoadingFirstPage" && (
+                <EmptyState
+                  className="empty catalog-empty"
+                  icon={<Dices />}
+                  title="No games match"
+                  description="Try another search or change the template filter."
+                />
+              )}
+            </section>
+            <div className="catalog-pagination">
+              <span
+                role={
+                  status === "LoadingFirstPage" || status === "LoadingMore"
+                    ? "status"
+                    : undefined
+                }
+              >
+                {status === "LoadingFirstPage"
+                  ? "Loading games…"
+                  : `${results.length} games loaded`}
+              </span>
+              {status === "CanLoadMore" && (
+                <Button variant="outline" onClick={() => loadMore(30)}>
+                  Load more games
+                </Button>
+              )}
+              {status === "Exhausted" && results.length > 0 && (
+                <span>All games loaded</span>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="page-heading game-detail-heading">
+              <div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (jsonDirty) setShowDiscardGame(true);
+                    else setSelected(null);
+                  }}
+                >
+                  <ArrowLeft data-icon="inline-start" /> All games
+                </Button>
+                <div className="game-detail-title">
+                  <GameCover image={selected.image} title={selected.title} />
+                  <div>
+                    <div className="eyebrow">
+                      {selected.id} · {selected.kind ?? "base game"}
+                    </div>
+                    <h1>{selected.title}</h1>
+                    <p>
+                      {selected.minPlayers ?? "?"}–{selected.maxPlayers ?? "?"}{" "}
+                      players · {selected.minutes ?? "?"} minutes
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <Badge variant={fixedGame?.data ? "secondary" : "outline"}>
+                {fixedGame?.data ? "Template set" : "No template"}
+              </Badge>
+            </div>
+            <Tabs defaultValue="template" key={selected.id}>
+              <TabsList className="editor-tabs catalog-detail-tabs">
+                <TabsTrigger value="template">Scoring template</TabsTrigger>
+                <TabsTrigger value="sources">Source links</TabsTrigger>
+                <TabsTrigger value="game-json">Advanced game JSON</TabsTrigger>
+              </TabsList>
+              <TabsContent value="template" className="catalog-tab-content">
+                {templateRows === undefined ? (
+                  <div
+                    className="loading-state"
+                    role="status"
+                    aria-label="Loading template"
+                  >
+                    <Skeleton className="h-5 w-1/2" />
+                    <Skeleton className="h-32 w-full" />
+                  </div>
+                ) : (
+                  <Workspace
+                    key={`${selected.id}-${templateRows[0]?.key ?? "new"}`}
+                    rows={templateRows}
+                    fixedGame={fixedGame}
+                    onSave={async (key, data) =>
+                      String(await saveTemplateMutation({ gameKey: key, data }))
+                    }
+                  />
+                )}
+              </TabsContent>
+              <TabsContent value="sources" className="catalog-tab-content">
+                <SourceLinksPanel
+                  gameKey={selected.id}
+                  enabled
+                  onLinked={(game) => {
+                    setSelected(game);
+                    if (!jsonDirty) setJson(JSON.stringify(game, null, 2));
+                  }}
+                  onImageChange={() => {}}
+                />
+              </TabsContent>
+              <TabsContent value="game-json" className="catalog-tab-content">
+                <Card className="game-json-panel">
+                  <CardHeader>
+                    <CardTitle>Advanced game data</CardTitle>
+                    <CardDescription>
+                      Edit game metadata here. Change provider IDs in Source
+                      links.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="game-json-content">
+                    <Textarea
+                      aria-label="Game JSON"
+                      className="json-editor"
+                      value={json}
+                      onChange={(event) => {
+                        setJson(event.target.value);
+                        setJsonDirty(true);
+                      }}
+                    />
+                    {error && (
+                      <Alert variant="destructive" className="error-alert">
+                        <AlertDescription>{error}</AlertDescription>
+                      </Alert>
+                    )}
+                  </CardContent>
+                  <CardFooter className="save-bar">
+                    <div>
+                      <span
+                        className={cn("status-dot", jsonDirty && "amber")}
+                      />
+                      {jsonDirty ? "Unsaved changes" : "All changes saved"}
+                      <Button
+                        disabled={!jsonDirty || saving}
+                        onClick={async () => {
+                          setError("");
+                          try {
+                            const data = JSON.parse(json) as Game;
+                            setSaving(true);
+                            const game = await saveGameMutation({
+                              gameKey: selected.id,
+                              data,
+                            });
+                            setSelected(game);
+                            setJson(JSON.stringify(game, null, 2));
+                            setJsonDirty(false);
+                            toast.success("Game data saved");
+                          } catch (cause) {
+                            setError(
+                              cause instanceof Error
+                                ? cause.message
+                                : "Could not save game data.",
+                            );
+                          } finally {
+                            setSaving(false);
+                          }
+                        }}
+                      >
+                        <Save data-icon="inline-start" />
+                        {saving ? "Saving…" : "Save game JSON"}
+                      </Button>
+                    </div>
+                  </CardFooter>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
+        <AlertDialog open={showDiscardGame} onOpenChange={setShowDiscardGame}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Discard unsaved game data?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Your changes to this game’s JSON will be lost.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep editing</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => {
+                  setSelected(null);
+                  setShowDiscardGame(false);
+                }}
+              >
+                Discard changes
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </main>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  const generatedId = useId();
+  const control = isValidElement(children)
+    ? cloneElement(children as ReactElement<{ id?: string }>, {
+        id: (children as ReactElement<{ id?: string }>).props.id ?? generatedId,
+      })
+    : children;
+  const controlId = isValidElement(control)
+    ? (control as ReactElement<{ id?: string }>).props.id
+    : generatedId;
+
+  return (
+    <UIField className="field">
+      <FieldLabel htmlFor={controlId}>{label}</FieldLabel>
+      {control}
+    </UIField>
+  );
+}
+
+function EmptyState({
+  title,
+  description,
+  icon,
+  action,
+  className = "empty",
+  role,
+}: {
+  title?: string;
+  description: string;
+  icon?: ReactNode;
+  action?: ReactNode;
+  className?: string;
+  role?: "status" | "alert";
+}) {
+  return (
+    <Empty className={className} role={role}>
+      <EmptyHeader>
+        {icon && <EmptyMedia variant="icon">{icon}</EmptyMedia>}
+        {title && <EmptyTitle>{title}</EmptyTitle>}
+        <EmptyDescription>{description}</EmptyDescription>
+      </EmptyHeader>
+      {action && <EmptyContent>{action}</EmptyContent>}
+    </Empty>
   );
 }
 
@@ -1035,9 +1714,16 @@ function GamePicker({
       />
       <div className="game-picker-results">
         {filtered === undefined ? (
-          <p role="status">Loading games…</p>
+          <div
+            className="loading-state"
+            role="status"
+            aria-label="Loading games"
+          >
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
         ) : !filtered.length ? (
-          <p>No catalog games found. Import a game in Meeple first.</p>
+          <EmptyState description="No catalog games found. Import a game in Meeple first." />
         ) : (
           filtered.map((game) => (
             <Button
@@ -1045,16 +1731,24 @@ function GamePicker({
               variant="ghost"
               onClick={() => onSelect(game)}
             >
-              <GameCover key={game.image ?? game.id} image={game.image} title={game.title} />
+              <GameCover
+                key={game.image ?? game.id}
+                image={game.image}
+                title={game.title}
+              />
               <span className="game-picker-option">
                 <span>{game.title}</span>
                 <span className="game-picker-identifiers">
                   {game.id}
-                  {game.ludopediaId ? ` · Ludopedia ${game.ludopediaId}` : " · Ludopedia —"}
+                  {game.ludopediaId
+                    ? ` · Ludopedia ${game.ludopediaId}`
+                    : " · Ludopedia —"}
                   {game.bggId ? ` · BGG ${game.bggId}` : " · BGG —"}
                 </span>
               </span>
-              <Badge variant="secondary">{game.data ? "Edit official" : "Create official"}</Badge>
+              <Badge variant="secondary">
+                {game.data ? "Edit official" : "Create official"}
+              </Badge>
             </Button>
           ))
         )}
@@ -1062,12 +1756,29 @@ function GamePicker({
     </div>
   );
 }
-function GameCover({ image, title, className = "" }: { image?: string; title: string; className?: string }) {
+function GameCover({
+  image,
+  title,
+  className = "",
+}: {
+  image?: string;
+  title: string;
+  className?: string;
+}) {
   const [failed, setFailed] = useState(false);
   return (
-    <span className={`game-cover ${className}`} title={title} aria-hidden="true">
+    <span
+      className={cn("game-cover", className)}
+      title={title}
+      aria-hidden="true"
+    >
       {image && !failed ? (
-        <img src={image} alt="" loading="lazy" onError={() => setFailed(true)} />
+        <img
+          src={image}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
       ) : (
         <Dices size={19} />
       )}
@@ -1085,27 +1796,57 @@ function SourceLinksPanel({
   onLinked: (game: Game) => void;
   onImageChange: (image?: string) => void;
 }) {
-  const links = useQuery(sourceLinksQuery, enabled && gameKey ? { gameKey } : "skip");
+  const links = useQuery(
+    sourceLinksQuery,
+    enabled && gameKey ? { gameKey } : "skip",
+  );
   if (!gameKey)
-    return <p className="empty">Choose a game when creating a template to review its source links.</p>;
+    return (
+      <EmptyState description="Choose a game when creating a template to review its source links." />
+    );
   if (!enabled)
-    return <p className="empty">Connect the Meeple backend to review and update source links.</p>;
+    return (
+      <EmptyState description="Connect the Meeple backend to review and update source links." />
+    );
   if (links === undefined)
-    return <p role="status" className="empty">Loading source links…</p>;
+    return (
+      <div
+        className="loading-state"
+        role="status"
+        aria-label="Loading source links"
+      >
+        <Skeleton className="h-5 w-1/3" />
+        <Skeleton className="h-24 w-full" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+    );
   if (!links)
-    return <p role="alert" className="empty">Game record not found.</p>;
+    return (
+      <EmptyState
+        role="alert"
+        title="Game record not found"
+        description="Return to the catalog and select a registered game."
+        icon={<Dices />}
+      />
+    );
   return (
     <div className="source-links-workspace">
       <div className="section-heading">
         <span className="section-number">ID</span>
         <div>
           <h3>Catalog source links</h3>
-          <p>Review the provider records attached to {links.title}. Search a provider to replace an incorrect match.</p>
+          <p>
+            Review the provider records attached to {links.title}. Search a
+            provider to replace an incorrect match.
+          </p>
         </div>
       </div>
       <div className="source-game-summary">
         <GameCover image={links.image} title={links.title} />
-        <div><strong>{links.title}</strong><code>{links.gameKey}</code></div>
+        <div>
+          <strong>{links.title}</strong>
+          <code>{links.gameKey}</code>
+        </div>
       </div>
       <div className="source-link-grid">
         <ProviderLinkCard
@@ -1160,9 +1901,12 @@ function ProviderLinkCard({
     try {
       const found = await runSearch({ gameKey, provider, search: searchTerm });
       setResults(found);
-      if (!found.candidates.length) setError(`No ${label} results found. Try another search.`);
+      if (!found.candidates.length)
+        setError(`No ${label} results found. Try another search.`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `Could not search ${label}.`);
+      setError(
+        cause instanceof Error ? cause.message : `Could not search ${label}.`,
+      );
     } finally {
       setBusy(false);
     }
@@ -1172,69 +1916,126 @@ function ProviderLinkCard({
     setBusy(true);
     setError("");
     try {
-      const game = await confirm({ proposalId: results.proposalId, candidateId: candidate.id, replace: true });
+      const game = await confirm({
+        proposalId: results.proposalId,
+        candidateId: candidate.id,
+        replace: true,
+      });
       onLinked(game);
       onImageChange(game.image);
       setEditing(false);
       setResults(null);
       toast.success(`${label} link updated`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : `Could not update the ${label} link.`);
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : `Could not update the ${label} link.`,
+      );
     } finally {
       setBusy(false);
     }
   }
   return (
     <Card className="source-link-card">
+      <CardHeader className="source-link-card-heading">
+        <CardTitle>{label}</CardTitle>
+        <CardDescription>
+          {current ? "Linked record" : "No linked record"}
+        </CardDescription>
+        <CardAction>
+          <Badge variant={current ? "secondary" : "outline"}>
+            {current ? "Linked" : "Missing"}
+          </Badge>
+        </CardAction>
+      </CardHeader>
       <CardContent>
-        <div className="source-link-card-heading">
-          <div><span className="eyebrow">{label}</span><h4>{current ? "Linked record" : "No linked record"}</h4></div>
-          <Badge variant={current ? "secondary" : "outline"}>{current ? "Linked" : "Missing"}</Badge>
-        </div>
         {current ? (
           <div className="source-current">
             <strong>{current.title}</strong>
             <code>{current.id}</code>
-            {current.url && <a href={current.url} target="_blank" rel="noreferrer">Open source <ExternalLink size={13} /></a>}
+            {current.url && (
+              <a href={current.url} target="_blank" rel="noreferrer">
+                Open source <ExternalLink size={13} />
+              </a>
+            )}
           </div>
-        ) : <p className="helper">No {label} record is linked to this game yet.</p>}
+        ) : (
+          <p className="helper">
+            No {label} record is linked to this game yet.
+          </p>
+        )}
         {!editing ? (
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
             {current ? "Find another record" : "Find a record"}
           </Button>
         ) : (
           <div className="source-search">
-            <div className="source-search-controls">
-              <Input
+            <InputGroup className="source-search-controls">
+              <InputGroupInput
                 aria-label={`Search ${label}`}
                 placeholder={`Search ${label}…`}
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
               />
-              <Button size="sm" disabled={busy || searchTerm.trim().length < 2} onClick={() => void search()}>
-                <Search size={14} /> {busy ? "Searching…" : "Search"}
-              </Button>
-            </div>
-            {error && <p role="alert" className="error">{error}</p>}
-            {results && <div className="source-results">
-              {results.candidates.map((candidate) => {
-                const sourceId = provider === "bgg" ? candidate.bggId : candidate.ludopediaId;
-                return (
-                  <Button
-                    key={candidate.id}
-                    variant="ghost"
-                    className="source-result"
-                    disabled={busy}
-                    onClick={() => void select(candidate)}
-                  >
-                    <GameCover image={candidate.image} title={candidate.title} />
-                    <span><strong>{candidate.title}</strong><small>{label} {sourceId ?? "ID unavailable"}</small></span>
-                    <span className="source-result-action">Use this record</span>
-                  </Button>
-                );
-              })}
-            </div>}
-            <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setResults(null); setError(""); }}>
+              <InputGroupAddon align="inline-end">
+                <Button
+                  size="sm"
+                  disabled={busy || searchTerm.trim().length < 2}
+                  onClick={() => void search()}
+                >
+                  <Search data-icon="inline-start" />{" "}
+                  {busy ? "Searching…" : "Search"}
+                </Button>
+              </InputGroupAddon>
+            </InputGroup>
+            {error && (
+              <Alert variant="destructive" className="error-alert">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {results && (
+              <div className="source-results">
+                {results.candidates.map((candidate) => {
+                  const sourceId =
+                    provider === "bgg"
+                      ? candidate.bggId
+                      : candidate.ludopediaId;
+                  return (
+                    <Button
+                      key={candidate.id}
+                      variant="ghost"
+                      className="source-result"
+                      disabled={busy}
+                      onClick={() => void select(candidate)}
+                    >
+                      <GameCover
+                        image={candidate.image}
+                        title={candidate.title}
+                      />
+                      <span>
+                        <strong>{candidate.title}</strong>
+                        <small>
+                          {label} {sourceId ?? "ID unavailable"}
+                        </small>
+                      </span>
+                      <span className="source-result-action">
+                        Use this record
+                      </span>
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setEditing(false);
+                setResults(null);
+                setError("");
+              }}
+            >
               Cancel
             </Button>
           </div>
