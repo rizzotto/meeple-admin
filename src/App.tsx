@@ -120,6 +120,7 @@ import {
   type TemplateTranslationContent,
 } from "@/domain/scoring";
 import type { Game } from "@/domain/model";
+import { expansionCategory } from "../../meeple/shared/expansion-categories";
 import { officialTemplateSeeds } from "@/domain/template-seeds";
 
 type Row = {
@@ -1627,7 +1628,11 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                     <strong>{game.title}</strong>
                     <small>
                       {game.kind === "expansion"
-                        ? "Expansion"
+                        ? expansionCategory(game) === "promos"
+                          ? "Promo"
+                          : expansionCategory(game) === "accessories"
+                            ? "Accessory"
+                            : "Expansion"
                         : game.kind === "edition"
                           ? "Edition"
                           : "Base game"}{" "}
@@ -1692,7 +1697,9 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                   <GameCover image={selected.image} title={selected.title} />
                   <div>
                     <div className="eyebrow">
-                      {selected.id} · {selected.kind ?? "base game"}
+                      {selected.id} · {selected.kind === "expansion"
+                        ? expansionCategory(selected)
+                        : selected.kind ?? "base game"}
                     </div>
                     <h1>{selected.title}</h1>
                     <p>
