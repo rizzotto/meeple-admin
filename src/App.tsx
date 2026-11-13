@@ -204,6 +204,11 @@ const generateTemplateTranslation = makeFunctionReference<
   { gameKey: string; locale: "pt-BR" },
   { sourceVersion: number; translation: TemplateTranslationContent }
 >("template_admin:generateTranslation");
+const generateTemplateDraft = makeFunctionReference<
+  "action",
+  { gameKey: string; current: Template },
+  Template
+>("template_admin:generateTemplate");
 const saveTemplateTranslation = makeFunctionReference<
   "mutation",
   { gameKey: string; sourceVersion: number; translation: TemplateTranslationContent },
@@ -426,9 +431,12 @@ function Workspace({
   const [pending, setPending] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
   const [translationBusy, setTranslationBusy] = useState(false);
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [templateError, setTemplateError] = useState("");
   const [translationDirty, setTranslationDirty] = useState(false);
   const [translationError, setTranslationError] = useState("");
   const generateTranslation = useAction(generateTemplateTranslation);
+  const generateTemplate = useAction(generateTemplateDraft);
   const saveTranslationMutation = useMutation(saveTemplateTranslation);
   const [json, setJson] = useState("");
   const [error, setError] = useState("");
@@ -576,6 +584,37 @@ function Workspace({
       setTranslationError(cause instanceof Error ? cause.message : "Could not generate translation.");
     } finally {
       setTranslationBusy(false);
+    }
+  }
+  async function generateScoringTemplate() {
+    setTemplateError("");
+    if (!onSave) {
+      setTemplateError("Connect the Meeple backend to generate templates.");
+      return;
+    }
+    if (!gameKey.trim()) {
+      setTemplateError("Choose a game before generating a template.");
+      return;
+    }
+    setTemplateBusy(true);
+    try {
+      const current: Template = {
+        ...draft,
+        tieBreakers: templateTieBreakRules(draft),
+      };
+      delete current.tieBreakRules;
+      const generated = await generateTemplate({ gameKey, current });
+      setDraft((current) => ({ ...generated, id: current.id, version: current.version }));
+      setDirty(true);
+      setTranslationDirty(false);
+      setJsonDirty(false);
+      setJson("");
+      setError("");
+      toast.success("Template draft generated");
+    } catch (cause) {
+      setTemplateError(cause instanceof Error ? cause.message : "Could not generate template.");
+    } finally {
+      setTemplateBusy(false);
     }
   }
   function updateTranslation(patch: Partial<TemplateTranslationContent>) {
@@ -797,6 +836,18 @@ function Workspace({
                     </div>
                   </div>
                   <FieldGroup className="template-fields">
+                    <div className="translation-actions">
+                      <Button variant="outline" disabled={templateBusy || !gameKey} onClick={() => void generateScoringTemplate()}>
+                        <Sparkles data-icon="inline-start" />
+                        {templateBusy ? "Generating…" : "Generate template with AI"}
+                      </Button>
+                      <span className="helper">Creates a reviewable draft from the game’s scoring rules.</span>
+                    </div>
+                    {templateError ? (
+                      <Alert variant="destructive" className="error-alert">
+                        <AlertDescription>{templateError}</AlertDescription>
+                      </Alert>
+                    ) : null}
                     <Field label="Template name">
                       <Input
                         maxLength={80}
@@ -1539,7 +1590,11 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                   data.
                 </p>
               </div>
-              <Badge variant="secondary">{results.length} loaded</Badge>
+              <Badge variant="secondary">
+                {status === "Exhausted"
+                  ? `${results.length} games`
+                  : `${results.length}+ loaded`}
+              </Badge>
             </div>
             <div className="catalog-toolbar">
               <InputGroup className="catalog-search">
@@ -1634,7 +1689,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
           </>
         ) : (
           <>
-            <div className="page-heading game-detail-heading">
+            <div className="game-detail-heading">
               <div>
                 <Button
                   variant="ghost"
@@ -1649,16 +1704,16 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                 <div className="game-detail-title">
                   <GameCover image={selected.image} title={selected.title} />
                   <div>
-                    <div className="eyebrow">
+                    <div className="game-detail-kicker">
                       {selected.id} · {selected.kind === "expansion"
                         ? expansionCategory(selected)
                         : selected.kind ?? "base game"}
                     </div>
                     <h1>{selected.title}</h1>
-                    <p>
-                      {selected.minPlayers ?? "?"}–{selected.maxPlayers ?? "?"}{" "}
-                      players · {selected.minutes ?? "?"} minutes
-                    </p>
+                    <div className="game-detail-meta">
+                      <span>{selected.minPlayers ?? "?"}–{selected.maxPlayers ?? "?"} players</span>
+                      <span>{selected.minutes ?? "?"} minutes</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1666,12 +1721,18 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                 {fixedGame?.data ? "Template set" : "No template"}
               </Badge>
             </div>
-            <Tabs defaultValue="template" key={selected.id}>
-              <TabsList variant="line" className="editor-tabs catalog-detail-tabs">
-                <TabsTrigger value="template">Scoring template</TabsTrigger>
-                <TabsTrigger value="sources">Source links</TabsTrigger>
-                <TabsTrigger value="game-json">Advanced game JSON</TabsTrigger>
-              </TabsList>
+            <Tabs defaultValue="template" key={selected.id} className="game-detail-tabs">
+              <div className="game-detail-tabs-header">
+                <div>
+                  <div className="eyebrow">Game management</div>
+                  <h2>Game information</h2>
+                </div>
+                <TabsList variant="line" className="editor-tabs catalog-detail-tabs">
+                  <TabsTrigger value="template">Scoring template</TabsTrigger>
+                  <TabsTrigger value="sources">Source links</TabsTrigger>
+                  <TabsTrigger value="game-json">Advanced game data</TabsTrigger>
+                </TabsList>
+              </div>
               <TabsContent value="template" className="catalog-tab-content">
                 {templateRows === undefined ? (
                   <div
@@ -1709,7 +1770,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
               <TabsContent value="game-json" className="catalog-tab-content">
                 <Card className="game-json-panel">
                   <CardHeader>
-                    <CardTitle>Advanced game data</CardTitle>
+                    <CardTitle>Game data</CardTitle>
                     <CardDescription>
                       Edit game metadata here. Change provider IDs in Source
                       links.

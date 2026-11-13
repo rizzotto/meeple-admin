@@ -139,7 +139,7 @@
 }
 body {
   margin: 0;
-  min-width: 360px;
+  min-width: 0;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
 }
@@ -440,11 +440,9 @@ main {
 }
 .catalog-cover {
   width: 50px;
-  height: 68px;
-  flex: 0 0 auto;
-}
-.game-cover.catalog-cover img {
-  object-fit: cover;
+  height: auto;
+  aspect-ratio: 3 / 4;
+  flex: 0 0 50px;
 }
 .catalog-card-copy {
   flex: 1;
@@ -476,20 +474,89 @@ main {
   font-size: 12px;
 }
 .game-detail-heading {
+  padding: 28px 0 20px;
   align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
 }
 .game-detail-title {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-top: 16px;
+  gap: 14px;
+  margin-top: 12px;
+}
+.game-detail-title > .game-cover {
+  width: 58px;
+  height: auto;
+  aspect-ratio: 3 / 4;
+  flex-basis: 58px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+}
+.game-detail-kicker {
+  color: var(--primary);
+  font-size: 11px;
+  margin-bottom: 4px;
 }
 .game-detail-title h1 {
   margin: 0;
+  font-size: 28px;
+  font-weight: 620;
+  letter-spacing: -0.8px;
 }
-.game-detail-title p {
-  margin: 5px 0 0;
+.game-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+.game-detail-meta span {
   color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.game-detail-meta span + span::before {
+  content: "·";
+  margin-right: 6px;
+}
+.game-detail-tabs-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.game-detail-tabs-header > div:first-child {
+  padding: 0 0 12px;
+}
+.game-detail-tabs-header h2 {
+  color: var(--foreground);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+.game-detail-tabs-header .eyebrow {
+  margin-bottom: 4px;
+}
+.game-detail-tabs-header .catalog-detail-tabs {
+  flex: 0 1 auto;
+  width: auto;
+  border-bottom: 0;
+  margin: 0;
+  padding-inline: 0;
+}
+.game-detail-tabs-header .catalog-detail-tabs [data-slot="tabs-trigger"] {
+  padding-inline: 4px;
+}
+.game-detail-tabs > [data-slot="tabs-content"] {
+  padding-top: 20px;
+}
+.game-json-panel [data-slot="card-content"] {
+  padding-bottom: 20px;
+}
+.game-json-panel .json-editor {
+  min-height: 420px;
 }
 .topbar-actions {
   display: flex;
@@ -497,7 +564,7 @@ main {
   gap: 10px;
 }
 .catalog-detail-tabs {
-  margin: 16px 0;
+  margin: 0;
 }
 .catalog-tab-content {
   min-width: 0;
@@ -686,6 +753,9 @@ main {
 }
 .editor-content [data-slot="tabs-list"],
 .catalog-detail-tabs { background: transparent; box-shadow: none; }
+.catalog-detail-tabs {
+  border-bottom: 0;
+}
 .form-body {
   padding: 23px 22px;
   display: flex;
@@ -1166,6 +1236,9 @@ main {
   }
 }
 @media (max-width: 620px) {
+  body {
+    min-width: 320px;
+  }
   main {
     padding: 0 13px;
   }
@@ -1238,6 +1311,11 @@ main {
   }
   .score-sheet [data-slot="card-content"] {
     padding: 24px;
+  }
+}
+@media (max-width: 380px) {
+  body {
+    min-width: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1518,6 +1596,19 @@ main {
   }
   .game-detail-title {
     align-items: flex-start;
+  }
+  .game-detail-tabs-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0;
+  }
+  .game-detail-tabs-header > div:first-child {
+    padding-bottom: 4px;
+  }
+  .game-detail-tabs-header .catalog-detail-tabs {
+    width: 100%;
+    padding-inline: 0;
+    gap: 14px;
   }
   .game-json-panel > [data-slot="card-header"] {
     padding: 18px 18px 12px;
