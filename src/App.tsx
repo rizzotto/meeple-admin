@@ -1,5 +1,5 @@
 import { Component, useEffect, useState, type ReactNode } from "react";
-import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { useAction, useConvexAuth, useMutation, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { makeFunctionReference } from "convex/server";
 import type { GenericId } from "convex/values";
@@ -7,10 +7,10 @@ import {
   BookOpen,
   ChevronRight,
   Dices,
+  ExternalLink,
   FilePlus2,
   Layers3,
   LogOut,
-  PanelLeftClose,
   PanelLeftOpen,
   Plus,
   Search,
@@ -35,8 +35,10 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
 import { templateTieBreakRules, validateTemplate, type Template } from "@/domain/scoring";
+import type { Game } from "@/domain/model";
 import { officialTemplateSeeds } from "@/domain/template-seeds";
 
 type Row = {
@@ -50,6 +52,19 @@ type Row = {
   data: Template;
 };
 type GameOption = { id: string; title: string; image?: string; ludopediaId?: number; bggId?: number; data: Template | null };
+type SourceProvider = "ludopedia" | "bgg";
+type ProviderLink = { id: number; title: string; url?: string };
+type SourceLinks = {
+  gameKey: string;
+  title: string;
+  image?: string;
+  ludopedia: ProviderLink | null;
+  bgg: ProviderLink | null;
+};
+type SourceSearchResult = {
+  proposalId: GenericId<"gameMatchProposals"> | null;
+  candidates: Game[];
+};
 const gameSearch = makeFunctionReference<
   "query",
   { search: string },
@@ -58,6 +73,19 @@ const gameSearch = makeFunctionReference<
 const library = makeFunctionReference<"query", { gameKey: string }, Row[]>(
   "template_admin:library",
 );
+const sourceLinksQuery = makeFunctionReference<"query", { gameKey: string }, SourceLinks | null>(
+  "template_admin:sourceLinks",
+);
+const sourceSearch = makeFunctionReference<
+  "action",
+  { gameKey: string; provider: SourceProvider; search: string },
+  SourceSearchResult
+>("template_admin:searchSourceLinks");
+const confirmSourceLink = makeFunctionReference<
+  "mutation",
+  { proposalId: GenericId<"gameMatchProposals">; candidateId: string; replace?: boolean },
+  Game
+>("catalog:confirmMatch");
 const saveTemplate = makeFunctionReference<
   "mutation",
   {
@@ -271,7 +299,6 @@ function Workspace({
   const [selected, setSelected] = useState<Row | null>(
     rows?.[0] ?? null,
   );
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [draft, setDraft] = useState<Template>(() =>
     selected ? structuredClone(selected.data) : fresh(),
   );
@@ -381,57 +408,58 @@ function Workspace({
   }
   return (
     <div className="shell">
-      <aside className={`sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
-        <div className="sidebar-header">
-          <a className="wordmark" href="/" aria-label="Meeple Studio home">
-            <span className="brand-icon">
-              <Dices size={22} />
-            </span>
-            meeple<span className="studio">studio</span>
-          </a>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="sidebar-toggle"
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-          >
-            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-          </Button>
-        </div>
-        <div className="workspace-label">Workspace</div>
-        <div className="nav-active" title="Scoring templates">
-          <Layers3 size={18} /> Scoring templates{" "}
-          <Badge variant="secondary">{rows?.length ?? "…"}</Badge>
-        </div>
-        <div className="sidebar-note">
-          <BookOpen size={18} />
-          <strong>Good rules, great games.</strong>
-          <p>
-            Build score sheets that make the last turn as good as the first.
-          </p>
-        </div>
-        <div className="sidebar-bottom">
-          <span className={onSave ? "status-dot" : "status-dot preview"} />
-          {onSave ? "Convex connected" : "Local preview"}
-          {onSignOut && (
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Sign out"
-              onClick={onSignOut}
-            >
-              <LogOut size={16} />
-            </Button>
-          )}
-        </div>
-      </aside>
       <main>
         <header className="topbar">
-          <span>
-            Workspace <ChevronRight size={14} /> Templates
-          </span>
+          <Dialog>
+            <span className="topbar-navigation">
+              <DialogTrigger
+                render={
+                  <Button variant="ghost" size="icon" aria-label="Open navigation">
+                    <PanelLeftOpen size={18} />
+                  </Button>
+                }
+              />
+              <span>
+                Workspace <ChevronRight size={14} /> Templates
+              </span>
+            </span>
+            <DialogContent className="sidebar-dialog" aria-label="Workspace navigation">
+              <aside className="sidebar">
+                <a className="wordmark" href="/" aria-label="Meeple Studio home">
+                  <span className="brand-icon">
+                    <Dices size={22} />
+                  </span>
+                  meeple<span className="studio">studio</span>
+                </a>
+                <div className="workspace-label">Workspace</div>
+                <div className="nav-active" title="Scoring templates">
+                  <Layers3 size={18} /> Scoring templates{" "}
+                  <Badge variant="secondary">{rows?.length ?? "…"}</Badge>
+                </div>
+                <div className="sidebar-note">
+                  <BookOpen size={18} />
+                  <strong>Good rules, great games.</strong>
+                  <p>
+                    Build score sheets that make the last turn as good as the first.
+                  </p>
+                </div>
+                <div className="sidebar-bottom">
+                  <span className={onSave ? "status-dot" : "status-dot preview"} />
+                  {onSave ? "Convex connected" : "Local preview"}
+                  {onSignOut && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Sign out"
+                      onClick={onSignOut}
+                    >
+                      <LogOut size={16} />
+                    </Button>
+                  )}
+                </div>
+            </aside>
+          </DialogContent>
+          </Dialog>
           <Badge variant="outline">
             <ShieldCheck size={13} /> Administrator
           </Badge>
@@ -468,9 +496,6 @@ function Workspace({
               />
             </div>
             <div className="game-filter">
-              <Button variant="outline" size="sm" onClick={create}>
-                Choose a game
-              </Button>
               <Button variant="ghost" size="sm" onClick={() => onGameKey?.("")}>
                 Show all
               </Button>
@@ -490,25 +515,13 @@ function Workspace({
                   </Button>
                 </div>
               ) : (
-                items.map((row, i) => (
+                items.map((row) => (
                   <button
                     key={row.key}
                     className={`template-row ${selected?.key === row.key ? "selected" : ""}`}
                     onClick={() => choose(row)}
                   >
-                    <span className={`tile tile-${i % 4}`}>
-                      <Dices size={21} />
-                      {row.image && (
-                        <img
-                          src={row.image}
-                          alt=""
-                          loading="lazy"
-                          onError={(event) => {
-                            event.currentTarget.style.display = "none";
-                          }}
-                        />
-                      )}
-                    </span>
+                    <GameCover key={row.image ?? row.key} image={row.image} title={row.gameTitle} />
                     <span className="row-text">
                       <strong>{row.data.title}</strong>
                       <small>
@@ -547,6 +560,7 @@ function Workspace({
             >
               <TabsList className="editor-tabs">
                 <TabsTrigger value="details">Details & scoring</TabsTrigger>
+                <TabsTrigger value="sourceLinks">Source links</TabsTrigger>
                 <TabsTrigger value="advanced">Advanced JSON</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="form-body">
@@ -581,15 +595,8 @@ function Workspace({
                     <Label htmlFor="official-game">Game</Label>
                     <Input id="official-game" value={gameTitle} readOnly />
                     <span className="helper">
-                      {gameKey || "Choose a game to link this template"}
+                      {gameKey || "Select a game when creating a template"}
                     </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => navigate(() => setPickerOpen(true))}
-                    >
-                      Choose game
-                    </Button>
                   </div>
                 </div>
                 <div className="two-col">
@@ -826,6 +833,16 @@ function Workspace({
                   Apply JSON
                 </Button>
               </TabsContent>
+              <TabsContent value="sourceLinks" className="form-body source-link-tab">
+                <SourceLinksPanel
+                  gameKey={gameKey}
+                  enabled={Boolean(onSave)}
+                  onLinked={(game) => setProviderIds({
+                    ludopediaId: game.ludopediaId,
+                    bggId: game.bggId,
+                  })}
+                />
+              </TabsContent>
             </Tabs>
             <div className="save-bar">
               {error && (
@@ -1026,19 +1043,7 @@ function GamePicker({
               variant="ghost"
               onClick={() => onSelect(game)}
             >
-              <span className="picker-game-art">
-                <Dices size={17} />
-                {game.image && (
-                  <img
-                    src={game.image}
-                    alt=""
-                    loading="lazy"
-                    onError={(event) => {
-                      event.currentTarget.style.display = "none";
-                    }}
-                  />
-                )}
-              </span>
+              <GameCover key={game.image ?? game.id} image={game.image} title={game.title} />
               <span className="game-picker-option">
                 <span>{game.title}</span>
                 <span className="game-picker-identifiers">
@@ -1053,6 +1058,180 @@ function GamePicker({
         )}
       </div>
     </div>
+  );
+}
+function GameCover({ image, title }: { image?: string; title: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className="game-cover" title={title} aria-hidden="true">
+      {image && !failed ? (
+        <img src={image} alt="" loading="lazy" onError={() => setFailed(true)} />
+      ) : (
+        <Dices size={19} />
+      )}
+    </span>
+  );
+}
+function SourceLinksPanel({
+  gameKey,
+  enabled,
+  onLinked,
+}: {
+  gameKey: string;
+  enabled: boolean;
+  onLinked: (game: Game) => void;
+}) {
+  const links = useQuery(sourceLinksQuery, enabled && gameKey ? { gameKey } : "skip");
+  if (!gameKey)
+    return <p className="empty">Choose a game when creating a template to review its source links.</p>;
+  if (!enabled)
+    return <p className="empty">Connect the Meeple backend to review and update source links.</p>;
+  if (links === undefined)
+    return <p role="status" className="empty">Loading source links…</p>;
+  if (!links)
+    return <p role="alert" className="empty">Game record not found.</p>;
+  return (
+    <div className="source-links-workspace">
+      <div className="section-heading">
+        <span className="section-number">ID</span>
+        <div>
+          <h3>Catalog source links</h3>
+          <p>Review the provider records attached to {links.title}. Search a provider to replace an incorrect match.</p>
+        </div>
+      </div>
+      <div className="source-game-summary">
+        <GameCover image={links.image} title={links.title} />
+        <div><strong>{links.title}</strong><code>{links.gameKey}</code></div>
+      </div>
+      <div className="source-link-grid">
+        <ProviderLinkCard
+          key={`${gameKey}-ludopedia`}
+          gameKey={gameKey}
+          gameTitle={links.title}
+          provider="ludopedia"
+          current={links.ludopedia}
+          onLinked={onLinked}
+        />
+        <ProviderLinkCard
+          key={`${gameKey}-bgg`}
+          gameKey={gameKey}
+          gameTitle={links.title}
+          provider="bgg"
+          current={links.bgg}
+          onLinked={onLinked}
+        />
+      </div>
+    </div>
+  );
+}
+function ProviderLinkCard({
+  gameKey,
+  gameTitle,
+  provider,
+  current,
+  onLinked,
+}: {
+  gameKey: string;
+  gameTitle: string;
+  provider: SourceProvider;
+  current: ProviderLink | null;
+  onLinked: (game: Game) => void;
+}) {
+  const label = provider === "bgg" ? "BoardGameGeek" : "Ludopedia";
+  const [editing, setEditing] = useState(false);
+  const [searchTerm, setSearchTerm] = useState(gameTitle);
+  const [results, setResults] = useState<SourceSearchResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const runSearch = useAction(sourceSearch);
+  const confirm = useMutation(confirmSourceLink);
+  async function search() {
+    setBusy(true);
+    setError("");
+    setResults(null);
+    try {
+      const found = await runSearch({ gameKey, provider, search: searchTerm });
+      setResults(found);
+      if (!found.candidates.length) setError(`No ${label} results found. Try another search.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `Could not search ${label}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function select(candidate: Game) {
+    if (!results?.proposalId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const game = await confirm({ proposalId: results.proposalId, candidateId: candidate.id, replace: true });
+      onLinked(game);
+      setEditing(false);
+      setResults(null);
+      toast.success(`${label} link updated`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : `Could not update the ${label} link.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card className="source-link-card">
+      <CardContent>
+        <div className="source-link-card-heading">
+          <div><span className="eyebrow">{label}</span><h4>{current ? "Linked record" : "No linked record"}</h4></div>
+          <Badge variant={current ? "secondary" : "outline"}>{current ? "Linked" : "Missing"}</Badge>
+        </div>
+        {current ? (
+          <div className="source-current">
+            <strong>{current.title}</strong>
+            <code>{current.id}</code>
+            {current.url && <a href={current.url} target="_blank" rel="noreferrer">Open source <ExternalLink size={13} /></a>}
+          </div>
+        ) : <p className="helper">No {label} record is linked to this game yet.</p>}
+        {!editing ? (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            {current ? "Find another record" : "Find a record"}
+          </Button>
+        ) : (
+          <div className="source-search">
+            <div className="source-search-controls">
+              <Input
+                aria-label={`Search ${label}`}
+                placeholder={`Search ${label}…`}
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
+              <Button size="sm" disabled={busy || searchTerm.trim().length < 2} onClick={() => void search()}>
+                <Search size={14} /> {busy ? "Searching…" : "Search"}
+              </Button>
+            </div>
+            {error && <p role="alert" className="error">{error}</p>}
+            {results && <div className="source-results">
+              {results.candidates.map((candidate) => {
+                const sourceId = provider === "bgg" ? candidate.bggId : candidate.ludopediaId;
+                return (
+                  <Button
+                    key={candidate.id}
+                    variant="ghost"
+                    className="source-result"
+                    disabled={busy}
+                    onClick={() => void select(candidate)}
+                  >
+                    <GameCover image={candidate.image} title={candidate.title} />
+                    <span><strong>{candidate.title}</strong><small>{label} {sourceId ?? "ID unavailable"}</small></span>
+                    <span className="source-result-action">Use this record</span>
+                  </Button>
+                );
+              })}
+            </div>}
+            <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setResults(null); setError(""); }}>
+              Cancel
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 function IdentityValue({ label, value }: { label: string; value: string }) {

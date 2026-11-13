@@ -193,16 +193,6 @@ p {
   position: fixed;
   inset: 0 auto 0 0;
 }
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-.sidebar-toggle {
-  flex-shrink: 0;
-  color: #74687b;
-}
 .wordmark {
   display: flex;
   gap: 9px;
@@ -470,38 +460,26 @@ main {
   white-space: nowrap;
   margin-top: 3px;
 }
-.tile {
-  width: 34px;
-  height: 38px;
+.game-cover {
+  width: 44px;
+  height: 64px;
   border-radius: 6px;
-  background: #e4eadd;
-  color: #6c805c;
-  display: flex;
+  background: #f0edf2;
+  color: #806e89;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  flex: 0 0 44px;
   position: relative;
   overflow: hidden;
+  border: 1px solid rgb(59 42 65 / 8%);
 }
-.tile img,
-.picker-game-art img {
+.game-cover img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-}
-.tile-1 {
-  background: #e7dcce;
-  color: #9a7853;
-}
-.tile-2 {
-  background: #e3dfed;
-  color: #85719b;
-}
-.tile-3 {
-  background: #dae7ea;
-  color: #627f8e;
+  object-fit: contain;
 }
 .library-footer {
   font-size: 9px;
@@ -1177,8 +1155,8 @@ main {
 .game-picker-results > button > span:first-child {
   flex: 1;
 }
-.game-picker-results > button > .picker-game-art {
-  flex: 0 0 34px;
+.game-picker-results > button > .game-cover {
+  flex: 0 0 44px;
 }
 .game-picker-results > button > .game-picker-option {
   flex: 1;
@@ -1188,19 +1166,6 @@ main {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-}
-.picker-game-art {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 38px;
-  flex: 0 0 34px;
-  overflow: hidden;
-  border-radius: 6px;
-  background: #e4eadd;
-  color: #6c805c;
 }
 .game-picker-identifiers {
   color: var(--muted-foreground);
@@ -1237,65 +1202,158 @@ main {
   color: var(--muted-foreground);
 }
 
-.sidebar.collapsed {
-  width: 70px;
-  padding: 22px 10px;
+.topbar-navigation {
+  display: inline-flex;
   align-items: center;
+  gap: 8px;
 }
-.sidebar.collapsed .sidebar-header {
+.sidebar-dialog {
+  position: fixed !important;
+  inset: 0 auto 0 0 !important;
+  width: min(218px, 85vw) !important;
+  max-width: min(218px, 85vw) !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  display: block !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  transform: none !important;
+}
+.sidebar-dialog .sidebar {
+  position: relative;
+  inset: auto;
   width: 100%;
+  height: 100%;
+  min-height: 100%;
   flex-direction: column;
-  gap: 16px;
+  align-items: stretch;
+  padding: 30px 16px;
+  overflow-y: auto;
 }
-.sidebar.collapsed .wordmark {
-  justify-content: center;
-  padding: 0;
-  font-size: 0;
+.sidebar-dialog .sidebar .workspace-label {
+  display: block;
 }
-.sidebar.collapsed .studio,
-.sidebar.collapsed .workspace-label,
-.sidebar.collapsed .sidebar-note {
-  display: none;
+.sidebar-dialog .sidebar .nav-active,
+.sidebar-dialog .sidebar .sidebar-bottom {
+  display: flex;
 }
-.sidebar.collapsed .nav-active {
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  margin-top: 24px;
-  padding: 0;
-  font-size: 0;
+.source-links-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
-.sidebar.collapsed .nav-active [data-slot="badge"] {
-  display: none;
+.source-game-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fff;
 }
-.sidebar.collapsed .sidebar-bottom {
+.source-game-summary > div,
+.source-current {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.source-game-summary strong,
+.source-current strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.source-game-summary code,
+.source-current code {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.source-link-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.source-link-card > [data-slot="card-content"] {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+.source-link-card-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 8px;
+}
+.source-link-card-heading h4 {
+  margin-top: 4px;
+  font-size: 13px;
+}
+.source-current a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  color: #633c6e;
+  font-size: 11px;
+  text-decoration: none;
+}
+.source-current a:hover {
+  text-decoration: underline;
+}
+.source-search {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.source-search-controls {
+  display: flex;
+  gap: 7px;
+}
+.source-search-controls input {
+  min-width: 0;
+}
+.source-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+}
+.source-result {
   width: 100%;
-  justify-content: center;
-  padding: 16px 0 0;
-  font-size: 0;
+  height: auto;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 7px;
+  text-align: left;
+  white-space: normal;
 }
-.sidebar.collapsed .sidebar-bottom button {
-  margin: 0;
+.source-result > span:nth-child(2) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
-.sidebar.collapsed + main {
-  margin-left: 70px;
+.source-result strong {
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
-@media (max-width: 850px) {
-  .sidebar.collapsed {
-    width: 100%;
-    height: 62px;
-    padding: 10px 14px;
-    flex-direction: row;
-    justify-content: space-between;
-  }
-  .sidebar.collapsed .sidebar-header {
-    width: auto;
-    flex-direction: row;
-  }
-  .sidebar.collapsed .nav-active {
-    display: none;
-  }
-  .sidebar.collapsed + main {
-    margin-left: 0;
+.source-result small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.source-result-action {
+  color: #633c6e;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .source-link-grid {
+    grid-template-columns: 1fr;
   }
 }
