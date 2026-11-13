@@ -110,7 +110,6 @@ import {
 } from "@/domain/scoring";
 import type { Game } from "@/domain/model";
 import { expansionCategory } from "@/domain/expansion-categories";
-import { officialTemplateSeeds } from "@/domain/template-seeds";
 
 type Row = {
   key: string;
@@ -247,21 +246,10 @@ const emptyTranslation = (template: Template): TemplateTranslationContent => ({
   tieBreakers: Object.fromEntries(templateTieBreakRules(template).map((field) => [field.id, { label: "", hint: "" }])),
   roles: Object.fromEntries((template.roles ?? []).map((role) => [role.id, ""])),
 });
-const demo: Row[] = officialTemplateSeeds.map(({ game, data }) => ({
-  key: data.id,
-  gameKey: game.id,
-  gameTitle: game.title,
-  ...(game.image ? { image: game.image } : {}),
-  ...(game.ludopediaId ? { ludopediaId: game.ludopediaId } : {}),
-  ...(game.bggId ? { bggId: game.bggId } : {}),
-  builtIn: false,
-  data,
-}));
-
 export default function App({ connected }: { connected: boolean }) {
   return (
     <ErrorBoundary>
-      {connected ? <Connected /> : <Workspace rows={demo} />}
+      {connected ? <Connected /> : <Workspace rows={[]} />}
     </ErrorBoundary>
   );
 }
