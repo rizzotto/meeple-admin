@@ -336,6 +336,9 @@ main {
   gap: 20px;
   align-items: start;
 }
+.workbench-fixed-game {
+  grid-template-columns: minmax(0, 1fr) 260px;
+}
 .library {
   background: var(--card);
   padding: 0;
@@ -432,6 +435,9 @@ main {
   width: 50px;
   height: 68px;
   flex: 0 0 auto;
+}
+.game-cover.catalog-cover img {
+  object-fit: cover;
 }
 .catalog-card-copy {
   flex: 1;
@@ -674,6 +680,11 @@ main {
   display: flex;
   flex-direction: column;
   gap: 17px;
+}
+.translation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .section-heading {
   display: flex;
@@ -1508,5 +1519,10 @@ main {
   }
   .source-link-grid {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 1270px) {
+  .workbench-fixed-game {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

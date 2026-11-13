@@ -11,6 +11,7 @@ import {
 import {
   useAction,
   useConvexAuth,
+  useConvex,
   useMutation,
   usePaginatedQuery,
   useQuery,
@@ -26,11 +27,13 @@ import {
   ExternalLink,
   FilePlus2,
   Layers3,
+  Languages,
   LogOut,
   PanelLeftOpen,
   Plus,
   Search,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Save,
 } from "lucide-react";
@@ -113,6 +116,8 @@ import {
   templateTieBreakRules,
   validateTemplate,
   type Template,
+  type TemplateTranslation,
+  type TemplateTranslationContent,
 } from "@/domain/scoring";
 import type { Game } from "@/domain/model";
 import { officialTemplateSeeds } from "@/domain/template-seeds";
@@ -158,6 +163,7 @@ const gamePages = makeFunctionReference<
   {
     paginationOpts: { numItems: number; cursor: string | null };
     missingTemplateOnly: boolean;
+    search: string;
   },
   {
     page: { game: Game; hasOfficialTemplate: boolean }[];
@@ -200,6 +206,16 @@ const saveTemplate = makeFunctionReference<
   },
   GenericId<"officialTemplates">
 >("template_admin:save");
+const generateTemplateTranslation = makeFunctionReference<
+  "action",
+  { gameKey: string; locale: "pt-BR" },
+  { sourceVersion: number; translation: TemplateTranslationContent }
+>("template_admin:generateTranslation");
+const saveTemplateTranslation = makeFunctionReference<
+  "mutation",
+  { gameKey: string; sourceVersion: number; translation: TemplateTranslationContent },
+  TemplateTranslation
+>("template_admin:saveTranslation");
 const permission = makeFunctionReference<
   "query",
   Record<string, never>,
@@ -223,6 +239,14 @@ const fresh = (): Template => ({
   ],
   tieBreakers: [],
   endCondition: "All players have completed final scoring.",
+});
+const emptyTranslation = (template: Template): TemplateTranslationContent => ({
+  title: "",
+  edition: "",
+  endCondition: "",
+  fields: Object.fromEntries(template.fields.map((field) => [field.id, { label: "", hint: "" }])),
+  tieBreakers: Object.fromEntries(templateTieBreakRules(template).map((field) => [field.id, { label: "", hint: "" }])),
+  roles: Object.fromEntries((template.roles ?? []).map((role) => [role.id, ""])),
 });
 const demo: Row[] = officialTemplateSeeds.map(({ game, data }) => ({
   key: data.id,
@@ -389,7 +413,7 @@ function Workspace({
   fixedGame,
 }: {
   rows: Row[] | undefined;
-  onSave?: (key: string, data: Template) => Promise<string>;
+  onSave?: (key: string, data: Template) => Promise<{ id: string; version: number }>;
   onGameKey?: (key: string) => void;
   onSignOut?: () => void;
   fixedGame?: GameOption;
@@ -410,6 +434,11 @@ function Workspace({
   const [dirty, setDirty] = useState(false);
   const [pending, setPending] = useState<(() => void) | null>(null);
   const [saving, setSaving] = useState(false);
+  const [translationBusy, setTranslationBusy] = useState(false);
+  const [translationDirty, setTranslationDirty] = useState(false);
+  const [translationError, setTranslationError] = useState("");
+  const generateTranslation = useAction(generateTemplateTranslation);
+  const saveTranslationMutation = useMutation(saveTemplateTranslation);
   const [json, setJson] = useState("");
   const [error, setError] = useState("");
   const [jsonDirty, setJsonDirty] = useState(false);
@@ -438,6 +467,7 @@ function Workspace({
       setGameImage(row.image);
       setProviderIds({ ludopediaId: row.ludopediaId, bggId: row.bggId });
       setDirty(false);
+      setTranslationDirty(false);
       setJsonDirty(false);
       setError("");
     });
@@ -468,6 +498,7 @@ function Workspace({
     setGameImage(game.image);
     setProviderIds({ ludopediaId: game.ludopediaId, bggId: game.bggId });
     setDirty(!game.data);
+    setTranslationDirty(false);
     setJsonDirty(false);
     setError("");
     setPickerOpen(false);
@@ -477,6 +508,19 @@ function Workspace({
       .toLowerCase()
       .includes(query.toLowerCase()),
   );
+  const translation = draft.translations?.ptBR ?? {
+    ...emptyTranslation(draft),
+    status: "draft" as const,
+    sourceVersion: draft.version,
+  };
+  const translationStale = translation.sourceVersion !== draft.version;
+  const translationStatus = !draft.translations?.ptBR
+    ? "Not translated"
+    : translationStale
+      ? "Source changed"
+      : translation.status === "reviewed"
+        ? "Reviewed"
+        : "Draft";
   async function save() {
     setError("");
     try {
@@ -490,17 +534,17 @@ function Workspace({
         tieBreakers: templateTieBreakRules(draft),
       };
       delete normalized.tieBreakRules;
-      const id = await onSave(gameKey.trim(), normalized);
+      const saved = await onSave(gameKey.trim(), normalized);
       setDirty(false);
       toast.success("Official template saved");
       const data = {
         ...normalized,
-        id,
-        version: 1,
+        id: saved.id,
+        version: saved.version,
       };
       setDraft(data);
       setSelected({
-        key: id,
+        key: saved.id,
         gameKey: gameKey.trim(),
         gameTitle,
         ...providerIds,
@@ -513,6 +557,90 @@ function Workspace({
       );
     } finally {
       setSaving(false);
+    }
+  }
+  async function generateTranslationDraft() {
+    setTranslationError("");
+    if (!onSave) {
+      setTranslationError("Connect the Meeple backend to generate translations.");
+      return;
+    }
+    if (dirty) {
+      setTranslationError("Save the English template changes before generating a translation.");
+      return;
+    }
+    setTranslationBusy(true);
+    try {
+      const result = await generateTranslation({ gameKey, locale: "pt-BR" });
+      setDraft((current) => ({
+        ...current,
+        translations: {
+          ...current.translations,
+          ptBR: { ...result.translation, status: "draft", sourceVersion: result.sourceVersion },
+        },
+      }));
+      setTranslationDirty(true);
+      toast.success("Portuguese draft generated");
+    } catch (cause) {
+      setTranslationError(cause instanceof Error ? cause.message : "Could not generate translation.");
+    } finally {
+      setTranslationBusy(false);
+    }
+  }
+  function updateTranslation(patch: Partial<TemplateTranslationContent>) {
+    setDraft((current) => {
+      const previous = current.translations?.ptBR ?? {
+        ...emptyTranslation(current),
+        status: "draft" as const,
+        sourceVersion: current.version,
+      };
+      return {
+        ...current,
+        translations: {
+          ...current.translations,
+          ptBR: { ...previous, ...patch, status: "draft", sourceVersion: previous.sourceVersion },
+        },
+      };
+    });
+    setTranslationDirty(true);
+    setTranslationError("");
+  }
+  async function saveReviewedTranslation() {
+    const translation = draft.translations?.ptBR;
+    if (!translation || !gameKey) return;
+    setTranslationError("");
+    if (!onSave) {
+      setTranslationError("Connect the Meeple backend to save translations.");
+      return;
+    }
+    if (dirty || translation.sourceVersion !== draft.version) {
+      setTranslationError("Save the English template before reviewing this translation.");
+      return;
+    }
+    setTranslationBusy(true);
+    try {
+      const saved = await saveTranslationMutation({
+        gameKey,
+        sourceVersion: translation.sourceVersion,
+        translation: {
+          title: translation.title,
+          edition: translation.edition,
+          endCondition: translation.endCondition,
+          fields: translation.fields,
+          tieBreakers: translation.tieBreakers,
+          roles: translation.roles,
+        },
+      });
+      setDraft((current) => ({
+        ...current,
+        translations: { ...current.translations, ptBR: saved },
+      }));
+      setTranslationDirty(false);
+      toast.success("Portuguese translation saved");
+    } catch (cause) {
+      setTranslationError(cause instanceof Error ? cause.message : "Could not save translation.");
+    } finally {
+      setTranslationBusy(false);
     }
   }
   return (
@@ -612,100 +740,104 @@ function Workspace({
             </AlertDescription>
           </Alert>
         )}
-        <div className="workbench">
-          <Card className="library">
-            <CardHeader className="library-top">
-              <CardTitle>Library</CardTitle>
-              <CardAction>
-                <Badge variant="secondary">{items.length} templates</Badge>
-              </CardAction>
-            </CardHeader>
-            <CardContent className="library-main">
-              <InputGroup className="search">
-                <InputGroupAddon>
-                  <Search />
-                </InputGroupAddon>
-                <InputGroupInput
-                  aria-label="Search templates"
-                  placeholder="Find a template…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </InputGroup>
-              <div className="game-filter">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onGameKey?.("")}
-                >
-                  Show all
-                </Button>
-              </div>
-              <div className="template-list">
-                {rows === undefined ? (
-                  <div
-                    className="loading-state"
-                    role="status"
-                    aria-label="Loading templates"
+        <div className={cn("workbench", fixedGame && "workbench-fixed-game")}>
+          {!fixedGame && (
+            <Card className="library">
+              <CardHeader className="library-top">
+                <CardTitle>Library</CardTitle>
+                <CardAction>
+                  <Badge variant="secondary">{items.length} templates</Badge>
+                </CardAction>
+              </CardHeader>
+              <CardContent className="library-main">
+                <InputGroup className="search">
+                  <InputGroupAddon>
+                    <Search />
+                  </InputGroupAddon>
+                  <InputGroupInput
+                    aria-label="Search templates"
+                    placeholder="Find a template…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </InputGroup>
+                <div className="game-filter">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onGameKey?.("")}
                   >
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-4 w-1/2" />
-                    <Skeleton className="h-4 w-2/3" />
-                  </div>
-                ) : !items.length ? (
-                  <Empty className="empty">
-                    <EmptyHeader>
-                      <EmptyMedia variant="icon">
-                        <Search />
-                      </EmptyMedia>
-                      <EmptyTitle>No templates found</EmptyTitle>
-                      <EmptyDescription>
-                        Try another search or add a template.
-                      </EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent>
-                      <Button variant="outline" onClick={create}>
-                        New template
-                      </Button>
-                    </EmptyContent>
-                  </Empty>
-                ) : (
-                  items.map((row) => (
-                    <Button
-                      key={row.key}
-                      variant="ghost"
-                      className={cn(
-                        "template-row",
-                        selected?.key === row.key && "selected",
-                      )}
-                      onClick={() => choose(row)}
+                    Show all
+                  </Button>
+                </div>
+                <div className="template-list">
+                  {rows === undefined ? (
+                    <div
+                      className="loading-state"
+                      role="status"
+                      aria-label="Loading templates"
                     >
-                      <GameCover
-                        key={row.image ?? row.key}
-                        image={row.image}
-                        title={row.gameTitle}
-                      />
-                      <span className="row-text">
-                        <strong>{row.data.title}</strong>
-                        <small>
-                          {row.data.fields.length} categories ·{" "}
-                          {row.data.minPlayers}–{row.data.maxPlayers} players
-                        </small>
-                        <span className="row-edition">{row.data.edition}</span>
-                      </span>
-                      <ChevronRight size={14} />
-                    </Button>
-                  ))
-                )}
-              </div>
-            </CardContent>
-            <CardFooter className="library-footer">
-              <span className="status-dot" />
-              {onSave
-                ? "Changes sync in real time"
-                : "Built-in template preview"}
-            </CardFooter>
-          </Card>
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
+                      <Skeleton className="h-4 w-2/3" />
+                    </div>
+                  ) : !items.length ? (
+                    <Empty className="empty">
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <Search />
+                        </EmptyMedia>
+                        <EmptyTitle>No templates found</EmptyTitle>
+                        <EmptyDescription>
+                          Try another search or add a template.
+                        </EmptyDescription>
+                      </EmptyHeader>
+                      <EmptyContent>
+                        <Button variant="outline" onClick={create}>
+                          New template
+                        </Button>
+                      </EmptyContent>
+                    </Empty>
+                  ) : (
+                    items.map((row) => (
+                      <Button
+                        key={row.key}
+                        variant="ghost"
+                        className={cn(
+                          "template-row",
+                          selected?.key === row.key && "selected",
+                        )}
+                        onClick={() => choose(row)}
+                      >
+                        <GameCover
+                          key={row.image ?? row.key}
+                          image={row.image}
+                          title={row.gameTitle}
+                        />
+                        <span className="row-text">
+                          <strong>{row.data.title}</strong>
+                          <small>
+                            {row.data.fields.length} categories ·{" "}
+                            {row.data.minPlayers}–{row.data.maxPlayers} players
+                          </small>
+                          <span className="row-edition">
+                            {row.data.edition}
+                          </span>
+                        </span>
+                        <ChevronRight size={14} />
+                      </Button>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+              <CardFooter className="library-footer">
+                <span className="status-dot" />
+                {onSave
+                  ? "Changes sync in real time"
+                  : "Built-in template preview"}
+              </CardFooter>
+            </Card>
+          )}
           <Card className="editor">
             <CardHeader className="editor-top">
               <div>
@@ -728,6 +860,7 @@ function Workspace({
               >
                 <TabsList className="editor-tabs">
                   <TabsTrigger value="details">Details & scoring</TabsTrigger>
+                  <TabsTrigger value="translations">Translations</TabsTrigger>
                   <TabsTrigger value="sourceLinks">Source links</TabsTrigger>
                   <TabsTrigger value="advanced">Advanced JSON</TabsTrigger>
                 </TabsList>
@@ -1128,6 +1261,92 @@ function Workspace({
                     Apply JSON
                   </Button>
                 </TabsContent>
+                <TabsContent value="translations" className="form-body">
+                  <div className="section-heading">
+                    <span className="section-number">04</span>
+                    <div>
+                      <h3>Template translation</h3>
+                      <p>Translate player-facing text while keeping scoring IDs and rules intact.</p>
+                    </div>
+                    <Badge variant={translationStatus === "Reviewed" ? "secondary" : "outline"}>
+                      {translationStatus}
+                    </Badge>
+                  </div>
+                  <Alert>
+                    <Languages />
+                    <AlertDescription>
+                      Brazilian Portuguese · AI creates a draft. Saving it marks this translation reviewed.
+                    </AlertDescription>
+                  </Alert>
+                  {translationStale || dirty ? (
+                    <Alert variant="destructive">
+                      <AlertDescription>
+                        The English source has unsaved or newer changes. Save it before generating or reviewing this translation.
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                  <div className="translation-actions">
+                    <Button variant="outline" disabled={translationBusy || !gameKey || dirty} onClick={() => void generateTranslationDraft()}>
+                      <Sparkles data-icon="inline-start" />
+                      {translationBusy ? "Working…" : "Generate Portuguese draft"}
+                    </Button>
+                    <Button disabled={translationBusy || !gameKey || !translationDirty || dirty || translationStale} onClick={() => void saveReviewedTranslation()}>
+                      <Save data-icon="inline-start" />
+                      Save reviewed translation
+                    </Button>
+                  </div>
+                  {translationError ? (
+                    <Alert variant="destructive" className="error-alert">
+                      <AlertDescription>{translationError}</AlertDescription>
+                    </Alert>
+                  ) : null}
+                  <FieldGroup className="template-fields">
+                    <div className="two-col">
+                      <Field label="Template name · pt-BR">
+                        <Input maxLength={80} value={translation.title} onChange={(e) => updateTranslation({ title: e.target.value })} />
+                      </Field>
+                      <Field label="Edition · pt-BR">
+                        <Input maxLength={200} value={translation.edition} onChange={(e) => updateTranslation({ edition: e.target.value })} />
+                      </Field>
+                    </div>
+                    <Field label="Scoring end condition · pt-BR">
+                      <Textarea maxLength={1000} value={translation.endCondition} onChange={(e) => updateTranslation({ endCondition: e.target.value })} />
+                    </Field>
+                    {draft.fields.map((field) => {
+                      const translated = translation.fields[field.id] ?? { label: "", hint: "" };
+                      return (
+                        <FieldSet className="category" key={`translation-${field.id}`}>
+                          <FieldLegend>{field.label}</FieldLegend>
+                          <Field label="Label · pt-BR">
+                            <Input maxLength={80} value={translated.label} onChange={(e) => updateTranslation({ fields: { ...translation.fields, [field.id]: { ...translated, label: e.target.value } } })} />
+                          </Field>
+                          <Field label="Hint · pt-BR">
+                            <Textarea maxLength={300} value={translated.hint} onChange={(e) => updateTranslation({ fields: { ...translation.fields, [field.id]: { ...translated, hint: e.target.value } } })} />
+                          </Field>
+                        </FieldSet>
+                      );
+                    })}
+                    {templateTieBreakRules(draft).map((rule) => {
+                      const translated = translation.tieBreakers[rule.id] ?? { label: "", hint: "" };
+                      return (
+                        <FieldSet className="category" key={`translation-tie-${rule.id}`}>
+                          <FieldLegend>{rule.label} · tie-breaker</FieldLegend>
+                          <Field label="Label · pt-BR">
+                            <Input maxLength={80} value={translated.label} onChange={(e) => updateTranslation({ tieBreakers: { ...translation.tieBreakers, [rule.id]: { ...translated, label: e.target.value } } })} />
+                          </Field>
+                          <Field label="Hint · pt-BR">
+                            <Textarea maxLength={300} value={translated.hint} onChange={(e) => updateTranslation({ tieBreakers: { ...translation.tieBreakers, [rule.id]: { ...translated, hint: e.target.value } } })} />
+                          </Field>
+                        </FieldSet>
+                      );
+                    })}
+                    {(draft.roles ?? []).map((role) => (
+                      <Field key={`translation-role-${role.id}`} label={`${role.label} · pt-BR`}>
+                        <Input maxLength={60} value={translation.roles[role.id] ?? ""} onChange={(e) => updateTranslation({ roles: { ...translation.roles, [role.id]: e.target.value } })} />
+                      </Field>
+                    ))}
+                  </FieldGroup>
+                </TabsContent>
                 <TabsContent
                   value="sourceLinks"
                   className="form-body source-link-tab"
@@ -1293,16 +1512,14 @@ function Workspace({
   );
 }
 function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
+  const convex = useConvex();
   const [missingOnly, setMissingOnly] = useState(false);
   const [selected, setSelected] = useState<Game | null>(null);
   const [search, setSearch] = useState("");
   const { results, status, loadMore } = usePaginatedQuery(
     gamePages,
-    { missingTemplateOnly: missingOnly },
+    { missingTemplateOnly: missingOnly, search },
     { initialNumItems: 30 },
-  );
-  const filtered = results.filter(({ game }) =>
-    game.title.toLowerCase().includes(search.toLowerCase()),
   );
   const templateRows = useQuery(
     library,
@@ -1380,7 +1597,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                 </InputGroupAddon>
                 <InputGroupInput
                   aria-label="Search games"
-                  placeholder="Search loaded games…"
+                  placeholder="Search all games…"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
@@ -1397,7 +1614,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
               </UIField>
             </div>
             <section className="catalog-grid" aria-label="Registered games">
-              {filtered.map(({ game, hasOfficialTemplate }) => (
+              {results.map(({ game, hasOfficialTemplate }) => (
                 <Button
                   key={game.id}
                   variant="outline"
@@ -1429,7 +1646,7 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                   </Badge>
                 </Button>
               ))}
-              {!filtered.length && status !== "LoadingFirstPage" && (
+              {!results.length && status !== "LoadingFirstPage" && (
                 <EmptyState
                   className="empty catalog-empty"
                   icon={<Dices />}
@@ -1513,9 +1730,11 @@ function GameCatalog({ onSignOut }: { onSignOut: () => void }) {
                     key={`${selected.id}-${templateRows[0]?.key ?? "new"}`}
                     rows={templateRows}
                     fixedGame={fixedGame}
-                    onSave={async (key, data) =>
-                      String(await saveTemplateMutation({ gameKey: key, data }))
-                    }
+                    onSave={async (key, data) => {
+                      const id = await saveTemplateMutation({ gameKey: key, data });
+                      const saved = (await convex.query(library, { gameKey: key }))[0]?.data;
+                      return { id, version: saved?.version ?? data.version };
+                    }}
                   />
                 )}
               </TabsContent>
@@ -1765,19 +1984,19 @@ function GameCover({
   title: string;
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [failedImage, setFailedImage] = useState<string | null>(null);
   return (
     <span
       className={cn("game-cover", className)}
       title={title}
       aria-hidden="true"
     >
-      {image && !failed ? (
+      {image && failedImage !== image ? (
         <img
           src={image}
           alt=""
           loading="lazy"
-          onError={() => setFailed(true)}
+          onError={() => setFailedImage(image)}
         />
       ) : (
         <Dices size={19} />

@@ -34,6 +34,19 @@ export type Template = {
   componentTemplateIds?: string[];
   isExpansionAddon?: boolean;
   expansionKey?: string;
+  translations?: { ptBR?: TemplateTranslation };
+};
+export type TemplateTranslationContent = {
+  title: string;
+  edition: string;
+  endCondition: string;
+  fields: Record<string, { label: string; hint: string }>;
+  tieBreakers: Record<string, { label: string; hint: string }>;
+  roles: Record<string, string>;
+};
+export type TemplateTranslation = TemplateTranslationContent & {
+  status: "draft" | "reviewed";
+  sourceVersion: number;
 };
 const field = (
   id: string,
