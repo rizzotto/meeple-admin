@@ -1157,6 +1157,41 @@ main {
 .game-picker-results > button > span:first-child {
   flex: 1;
 }
+.game-picker-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.game-picker-identifiers {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.game-identity-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: -8px 0 18px;
+}
+.game-identity-preview > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--muted);
+}
+.game-identity-preview span {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.game-identity-preview code {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
 .game-picker-results > p {
   padding: 15px;
   font-size: 12px;

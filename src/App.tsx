@@ -41,10 +41,12 @@ type Row = {
   key: string;
   gameKey: string;
   gameTitle: string;
+  ludopediaId?: number;
+  bggId?: number;
   builtIn: boolean;
   data: Template;
 };
-type GameOption = { key: string; title: string; data: Template | null };
+type GameOption = { id: string; title: string; ludopediaId?: number; bggId?: number; data: Template | null };
 const gameSearch = makeFunctionReference<
   "query",
   { search: string },
@@ -85,6 +87,8 @@ const demo: Row[] = officialTemplateSeeds.map(({ game, data }) => ({
   key: data.id,
   gameKey: game.id,
   gameTitle: game.title,
+  ...(game.ludopediaId ? { ludopediaId: game.ludopediaId } : {}),
+  ...(game.bggId ? { bggId: game.bggId } : {}),
   builtIn: false,
   data,
 }));
@@ -261,13 +265,14 @@ function Workspace({
   onSignOut?: () => void;
 }) {
   const [selected, setSelected] = useState<Row | null>(
-    rows?.find((r) => r.gameKey === "everdell") ?? rows?.[0] ?? null,
+    rows?.[0] ?? null,
   );
   const [draft, setDraft] = useState<Template>(() =>
     selected ? structuredClone(selected.data) : fresh(),
   );
   const [gameKey, setGameKey] = useState(selected?.gameKey ?? "");
   const [gameTitle, setGameTitle] = useState(selected?.gameTitle ?? "");
+  const [providerIds, setProviderIds] = useState({ ludopediaId: selected?.ludopediaId, bggId: selected?.bggId });
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -298,6 +303,7 @@ function Workspace({
       setDraft(structuredClone(row.data));
       setGameKey(row.gameKey);
       setGameTitle(row.gameTitle);
+      setProviderIds({ ludopediaId: row.ludopediaId, bggId: row.bggId });
       setDirty(false);
       setJsonDirty(false);
       setError("");
@@ -309,16 +315,19 @@ function Workspace({
       game.data
         ? {
             key: data.id,
-            gameKey: game.key,
+            gameKey: game.id,
             gameTitle: game.title,
+            ...(game.ludopediaId ? { ludopediaId: game.ludopediaId } : {}),
+            ...(game.bggId ? { bggId: game.bggId } : {}),
             builtIn: false,
             data,
           }
         : null,
     );
     setDraft(structuredClone(data));
-    setGameKey(game.key);
+    setGameKey(game.id);
     setGameTitle(game.title);
+    setProviderIds({ ludopediaId: game.ludopediaId, bggId: game.bggId });
     setDirty(!game.data);
     setJsonDirty(false);
     setError("");
@@ -350,6 +359,7 @@ function Workspace({
         key: id,
         gameKey: gameKey.trim(),
         gameTitle,
+        ...providerIds,
         builtIn: false,
         data,
       });
@@ -524,6 +534,11 @@ function Workspace({
                     onChange={(e) => change({ title: e.target.value })}
                   />
                 </Field>
+                <div className="game-identity-preview" aria-label="Game identifiers">
+                  <IdentityValue label="Meeple ID" value={gameKey} />
+                  <IdentityValue label="Ludopedia ID" value={providerIds.ludopediaId === undefined ? "—" : String(providerIds.ludopediaId)} />
+                  <IdentityValue label="BGG ID" value={providerIds.bggId === undefined ? "—" : String(providerIds.bggId)} />
+                </div>
                 <div className="two-col">
                   <Field label="Edition">
                     <Input
@@ -914,8 +929,10 @@ function Workspace({
           ) : (
             <GamePicker
               games={demo.map((row) => ({
-                key: row.gameKey,
+                id: row.gameKey,
                 title: row.gameTitle,
+                ...(row.ludopediaId ? { ludopediaId: row.ludopediaId } : {}),
+                ...(row.bggId ? { bggId: row.bggId } : {}),
                 data: row.data,
               }))}
               onSelect={selectGame}
@@ -1014,18 +1031,31 @@ function GamePicker({
         ) : (
           filtered.map((game) => (
             <Button
-              key={game.key}
+              key={game.id}
               variant="ghost"
               onClick={() => onSelect(game)}
             >
-              <span>{game.title}</span>
-              <Badge variant="secondary">
-                {game.data ? "Edit official" : "Create official"}
-              </Badge>
+              <span className="game-picker-option">
+                <span>{game.title}</span>
+                <span className="game-picker-identifiers">
+                  {game.id}
+                  {game.ludopediaId ? ` · Ludopedia ${game.ludopediaId}` : " · Ludopedia —"}
+                  {game.bggId ? ` · BGG ${game.bggId}` : " · BGG —"}
+                </span>
+              </span>
+              <Badge variant="secondary">{game.data ? "Edit official" : "Create official"}</Badge>
             </Button>
           ))
         )}
       </div>
+    </div>
+  );
+}
+function IdentityValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <code>{value}</code>
     </div>
   );
 }
