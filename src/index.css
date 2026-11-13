@@ -478,6 +478,7 @@ main {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  border-radius: inherit;
 }
 .library-footer {
   font-size: 9px;
