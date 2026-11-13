@@ -1429,17 +1429,7 @@ function Workspace({
           {onSave && !fixedGame ? (
             <LiveGamePicker onSelect={selectGame} />
           ) : !onSave ? (
-            <GamePicker
-              games={demo.map((row) => ({
-                id: row.gameKey,
-                title: row.gameTitle,
-                ...(row.image ? { image: row.image } : {}),
-                ...(row.ludopediaId ? { ludopediaId: row.ludopediaId } : {}),
-                ...(row.bggId ? { bggId: row.bggId } : {}),
-                data: row.data,
-              }))}
-              onSelect={selectGame}
-            />
+            <LiveGamePicker onSelect={selectGame} />
           ) : (
             <EmptyState description="This template is attached to the selected game." />
           )}
