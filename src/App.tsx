@@ -128,6 +128,7 @@ type GameOption = {
   image?: string;
   ludopediaId?: number;
   bggId?: number;
+  kind?: "base" | "expansion" | "edition";
   data: Template | null;
 };
 type SourceProvider = "ludopedia" | "bgg";
@@ -1936,11 +1937,10 @@ function GamePicker({
 }) {
   const [localSearch, setLocalSearch] = useState("");
   const search = remoteSearch ?? localSearch;
-  const filtered = onSearch
-    ? games
-    : games?.filter((game) =>
-        game.title.toLowerCase().includes(search.toLowerCase()),
-      );
+  const filtered = games?.filter((game) =>
+    (onSearch || game.title.toLowerCase().includes(search.toLowerCase())) &&
+    (game.kind === "expansion" || expansionCategory(game) === "expansions"),
+  );
   return (
     <div className="game-picker">
       <Input
