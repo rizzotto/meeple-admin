@@ -80,7 +80,7 @@ const fresh = (): Template => ({
   fields: [
     { id: "score", label: "Victory points", hint: "", min: 0, total: true },
   ],
-  tieBreakRules: [],
+  tieBreakers: [],
   endCondition: "All players have completed final scoring.",
 });
 const demo: Row[] = officialTemplateSeeds.map(({ game, data }) => ({
@@ -346,11 +346,13 @@ function Workspace({
       if (!onSave)
         throw new Error("Preview mode. Connect Convex and sign in to save.");
       setSaving(true);
-      const id = await onSave(gameKey.trim(), draft);
+      const normalized = { ...draft, tieBreakers: templateTieBreakRules(draft) };
+      delete normalized.tieBreakRules;
+      const id = await onSave(gameKey.trim(), normalized);
       setDirty(false);
       toast.success("Official template saved");
       const data = {
-        ...draft,
+        ...normalized,
         id,
         version: 1,
       };
@@ -663,7 +665,6 @@ function Workspace({
                         onClick={() =>
                           change({
                             fields: draft.fields.filter((_, i) => i !== index),
-                            tieBreakRules: templateTieBreakRules(draft).filter((rule) => rule.fieldId !== field.id),
                           })
                         }
                       >
@@ -729,46 +730,28 @@ function Workspace({
                               fields: draft.fields.map((f, i) =>
                                 i === index ? { ...f, total } : f,
                               ),
-                              tieBreakRules: total
-                                ? templateTieBreakRules(draft).filter((rule) => rule.fieldId !== field.id)
-                                : templateTieBreakRules(draft),
                             })
                           }
                         />{" "}
-                        In total
+                  In total
                       </label>
                     </div>
                   </div>
                 ))}
                 <Field label="Tie-breakers, in priority order">
-                  <p className="helper">Choose fields here once. Their labels come from the scoring categories above.</p>
-                  <div className="category-options">
-                    <Select
-                      value="add-tie-breaker"
-                      onValueChange={(fieldId) => {
-                        if (fieldId === "add-tie-breaker") return;
-                        change({ tieBreakRules: [...templateTieBreakRules(draft), { fieldId, direction: "higher" }] });
-                      }}
-                    >
-                      <SelectTrigger aria-label="Add tie-breaker"><SelectValue placeholder="Add a field" /></SelectTrigger>
-                      <SelectContent>
-                        {draft.fields.filter((field) => !field.total && !templateTieBreakRules(draft).some((rule) => rule.fieldId === field.id)).map((field) => (
-                          <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <Button variant="outline" onClick={() => change({ tieBreakers: [...templateTieBreakRules(draft), { id: `tie_${Date.now()}`, label: "New tie-breaker", hint: "", total: false, min: 0, direction: "higher" }] })}><Plus size={14} /> Add tie-breaker</Button>
                 </Field>
                 {templateTieBreakRules(draft).map((rule, index) => (
-                  <div className="category-options" key={rule.fieldId}>
-                    <span>{index + 1}. {draft.fields.find((field) => field.id === rule.fieldId)?.label ?? rule.fieldId}</span>
+                  <div className="category" key={rule.id}>
+                    <div className="category-title"><span>{String(index + 1).padStart(2, "0")}</span><Input aria-label={`Tie-breaker ${index + 1} label`} value={rule.label} onChange={(e) => change({ tieBreakers: templateTieBreakRules(draft).map((current) => current.id === rule.id ? { ...current, label: e.target.value } : current) })} /><Button variant="ghost" size="icon" aria-label={`Remove ${rule.label}`} onClick={() => change({ tieBreakers: templateTieBreakRules(draft).filter((current) => current.id !== rule.id) })}><Trash2 size={15} /></Button></div>
+                    <Input aria-label={`${rule.label} hint`} value={rule.hint} placeholder="What should players record?" onChange={(e) => change({ tieBreakers: templateTieBreakRules(draft).map((current) => current.id === rule.id ? { ...current, hint: e.target.value } : current) })} />
                     <Select
                       value={rule.direction}
                       onValueChange={(direction) => change({
-                        tieBreakRules: templateTieBreakRules(draft).map((current) => current.fieldId === rule.fieldId ? { ...current, direction: direction as "higher" | "lower" } : current),
+                        tieBreakers: templateTieBreakRules(draft).map((current) => current.id === rule.id ? { ...current, direction: direction as "higher" | "lower" } : current),
                       })}
                     >
-                      <SelectTrigger aria-label={`${draft.fields.find((field) => field.id === rule.fieldId)?.label ?? rule.fieldId} comparison`}>
+                      <SelectTrigger aria-label={`${rule.label} comparison`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -779,7 +762,7 @@ function Workspace({
                   </div>
                 ))}
                 <p className="helper">
-                  Tie-break fields are recorded as references to the scoring categories above.
+                  These inputs resolve tied scores and are excluded from totals.
                 </p>
               </TabsContent>
               <TabsContent value="advanced" className="form-body">
@@ -864,6 +847,7 @@ function Workspace({
                     <span className="score-box">—</span>
                   </div>
                 ))}
+                {templateTieBreakRules(draft).length ? <div className="helper">Tie-break priority: {templateTieBreakRules(draft).map((f) => f.label).join(" → ")}</div> : null}
                 <div className="total-line">
                   <strong>Total score</strong>
                   <strong>0</strong>

@@ -25,7 +25,8 @@ export type Template = {
   minPlayers: number;
   maxPlayers: number;
   fields: Field[];
-  tieBreakRules: { fieldId: string; direction: "higher" | "lower" }[];
+  tieBreakers?: (Field & { direction: "higher" | "lower" })[];
+  tieBreakRules?: { fieldId: string; label?: string; direction: "higher" | "lower" }[];
   endCondition: string;
   roles?: { id: string; label: string }[];
   lowestWins?: boolean;
@@ -66,7 +67,7 @@ export const templates: Record<string, Template> = {
         max: 1,
       },
     ],
-    tieBreakRules: [],
+    tieBreakers: [],
     endCondition: "Confirm the final outcome for every player.",
   },
   "cooperative-win-loss-v1": {
@@ -91,7 +92,7 @@ export const templates: Record<string, Template> = {
         max: 1,
       },
     ],
-    tieBreakRules: [],
+    tieBreakers: [],
     endCondition: "Confirm the final outcome for the group.",
   },
   "manual-v1": {
@@ -112,7 +113,7 @@ export const templates: Record<string, Template> = {
         -100000,
       ),
     ],
-    tieBreakRules: [],
+    tieBreakers: [],
     endCondition: "Confirm that scoring is complete.",
   },
   "everdell-v1": {
@@ -160,7 +161,10 @@ export const templates: Record<string, Template> = {
         false,
       ),
     ],
-    tieBreakRules: [{ fieldId: "eventCount", direction: "higher" }, { fieldId: "resources", direction: "higher" }],
+    tieBreakers: [
+      { id: "eventCount", label: "Events achieved", hint: "Number of Events achieved.", min: 0, total: false, direction: "higher" },
+      { id: "resources", label: "Leftover resources", hint: "Total remaining resources.", min: 0, total: false, direction: "higher" },
+    ],
     endCondition:
       "All players have finished and final bonuses have been counted.",
   },
@@ -179,21 +183,12 @@ export const templates: Record<string, Template> = {
         "Victory points",
         "Final VP after endgame Intrigue cards and all final scoring.",
       ),
-      field("spice", "Spice", "First tie-breaker: most remaining spice wins.", false),
-      field("solari", "Solari", "Second tie-breaker: most remaining Solari wins.", false),
-      field("water", "Water", "Third tie-breaker: most remaining water wins.", false),
-      field(
-        "troops",
-        "Garrison troops",
-        "Fourth tie-breaker: most troops in your garrison wins.",
-        false,
-      ),
     ],
-    tieBreakRules: [
-      { fieldId: "spice", direction: "higher" },
-      { fieldId: "solari", direction: "higher" },
-      { fieldId: "water", direction: "higher" },
-      { fieldId: "troops", direction: "higher" },
+    tieBreakers: [
+      { id: "spice", label: "Spice", hint: "Remaining spice.", min: 0, total: false, direction: "higher" },
+      { id: "solari", label: "Solari", hint: "Remaining Solari.", min: 0, total: false, direction: "higher" },
+      { id: "water", label: "Water", hint: "Remaining water.", min: 0, total: false, direction: "higher" },
+      { id: "troops", label: "Garrison troops", hint: "Troops in your garrison.", min: 0, total: false, direction: "higher" },
     ],
     endCondition:
       "At Recall, 10+ VP or an empty Conflict deck triggers the endgame. Resolve endgame Intrigue cards before final scoring. Reaching 10 VP does not immediately declare a winner.",
@@ -249,7 +244,7 @@ export function evaluate(
       validate(value, f, p.name);
       total += value;
     }
-    for (const f of fieldsForPlayer(template, p).filter((f) => !f.total)) {
+    for (const f of templateTieBreakRules(template)) {
       const value = p.scores[f.id];
       if (value != null) validate(value, f, p.name);
     }
@@ -300,13 +295,13 @@ export function evaluate(
     .map((n) => totals.filter((p) => p.total === n));
   const used: string[] = [];
   for (const rule of templateTieBreakRules(template)) {
-    const f = template.fields.find((f) => f.id === rule.fieldId)!;
+    const f = rule;
     groups = groups.flatMap((group) => {
       if (group.length === 1) return [group];
       used.push(f.label);
       for (const row of group) {
         const player = players.find((p) => p.id === row.playerId)!;
-        const value = player.scores[rule.fieldId];
+        const value = player.scores[f.id];
         if (value == null)
           throw new Error(
             `${player.name}: enter ${f.label.toLowerCase()} to resolve the tie.`,
@@ -370,7 +365,14 @@ export function fieldsForPlayer(template: Template, player: Player) {
   );
 }
 export function templateTieBreakRules(template: Template) {
-  return template.tieBreakRules;
+  if (template.tieBreakers) return template.tieBreakers;
+  return (template.tieBreakRules ?? []).map((rule) => {
+    const field = template.fields.find((candidate) => candidate.id === rule.fieldId);
+    return field ? { ...field, total: false, direction: rule.direction } : { id: rule.fieldId, label: rule.label ?? rule.fieldId, hint: "", total: false, min: 0, direction: rule.direction };
+  });
+}
+export function templateTieBreakers(template: Template) {
+  return templateTieBreakRules(template);
 }
 export function validateTemplate(t: Template) {
   if (t.engineVersion !== 1 && t.engineVersion !== 2)
@@ -381,14 +383,14 @@ export function validateTemplate(t: Template) {
     const outcome = t.fields.find((f) => f.id === "outcome");
     const totals = t.fields.filter((f) => f.total);
     if (t.resultMode === "race") {
-      if (totals.length !== 1 || totals[0].min < 1 || t.tieBreakRules.length)
+      if (totals.length !== 1 || totals[0].min < 1 || templateTieBreakRules(t).length)
         throw new Error("Race templates require one finishing-position field.");
     } else if (
       !outcome ||
       outcome.min !== 0 ||
       outcome.max !== 1 ||
       outcome.roleIds?.length ||
-      t.tieBreakRules.length ||
+      templateTieBreakRules(t).length ||
       (t.resultMode === "cooperative" &&
         (totals.length !== 1 || totals[0].id !== "outcome"))
     )
@@ -454,10 +456,8 @@ export function validateTemplate(t: Template) {
     )
       throw new Error("Each role needs at least one scoring category.");
   if (
-    new Set(templateTieBreakRules(t).map((rule) => rule.fieldId)).size !== templateTieBreakRules(t).length ||
-    templateTieBreakRules(t).some(
-      (rule) => !t.fields.some((f) => f.id === rule.fieldId && !f.total && !f.roleIds?.length),
-    )
+    new Set(templateTieBreakRules(t).map((rule) => rule.id)).size !== templateTieBreakRules(t).length ||
+    templateTieBreakRules(t).some((f) => !/^[a-zA-Z0-9_-]{1,40}$/.test(f.id) || !f.label.trim() || !f.hint || !Number.isSafeInteger(f.min) || (f.max !== undefined && (!Number.isSafeInteger(f.max) || f.max < f.min)))
   )
     throw new Error("Tie-breakers must be shared categories, in order.");
 }

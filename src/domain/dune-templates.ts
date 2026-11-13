@@ -8,13 +8,12 @@ const fields: Template["fields"] = [
     total: true,
     min: 0,
   },
-  ...["spice", "solari", "water", "troops"].map((id, index) => ({
-    id,
-    label: ["Spice", "Solari", "Water", "Garrison troops"][index],
-    hint: "Remaining resources for tie-breaking; not victory points.",
-    total: false,
-    min: 0,
-  })),
+];
+const tieBreakers: NonNullable<Template["tieBreakers"]> = [
+  { id: "spice", label: "Spice", hint: "Remaining spice.", total: false, min: 0, direction: "higher" },
+  { id: "solari", label: "Solari", hint: "Remaining Solari.", total: false, min: 0, direction: "higher" },
+  { id: "water", label: "Water", hint: "Remaining water.", total: false, min: 0, direction: "higher" },
+  { id: "troops", label: "Garrison troops", hint: "Troops in your garrison.", total: false, min: 0, direction: "higher" },
 ];
 export const duneExpansionTemplates: Record<string, Template> = {};
 for (const [suffix, expansionIds, title] of [
@@ -43,7 +42,7 @@ for (const [suffix, expansionIds, title] of [
       minPlayers: 1,
       maxPlayers: 4,
       fields,
-      tieBreakRules: ["spice", "solari", "water", "troops"].map((fieldId) => ({ fieldId, direction: "higher" as const })),
+      tieBreakers,
       endCondition:
         (mode === "epic"
           ? "Epic: use the Epic setup and 12 VP endgame threshold. "

@@ -187,7 +187,7 @@ for (const game of rankedGames) {
             ],
     resultMode: cooperative ? "cooperative" : race ? "race" : "declared",
     ...(race ? { lowestWins: true } : {}),
-    tieBreakRules: [],
+    tieBreakers: [],
     endCondition: cooperative
       ? cooperativeEnd
       : declared
@@ -214,7 +214,7 @@ function configure(
   template.source = source;
   template.edition = automatic ? verifiedEdition : categoryEdition;
   if (automatic) delete template.resultMode;
-  template.tieBreakRules = tieBreakers.map((fieldId) => ({ fieldId, direction: "higher" }));
+  template.tieBreakers = tieBreakers.map((id) => ({ ...template.fields.find((field) => field.id === id)!, total: false, direction: "higher" }));
   template.endCondition = bilingual(endEn, endPt);
 }
 configure(
