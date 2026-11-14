@@ -13,6 +13,7 @@ export type Template = {
   version: number;
   engineVersion: 1 | 2;
   resultMode?: "declared" | "cooperative" | "race";
+  scoringType?: "numeric" | "outcome";
   title: string;
   edition: string;
   source: string;
@@ -244,6 +245,10 @@ export function validateTemplate(t: Template) {
     )
       throw new Error("Outcome templates require a shared 0–1 outcome field.");
   }
+  if (t.scoringType !== undefined && t.scoringType !== "numeric" && t.scoringType !== "outcome")
+    throw new Error("Choose a valid scoring type.");
+  if (t.scoringType === "outcome" && (t.resultMode !== "declared" || !t.fields.some((f) => f.id === "outcome" && f.total && f.min === 0 && f.max === 1)))
+    throw new Error("Outcome scoring requires a declared 0–1 outcome field.");
   if (t.source && !/^https:\/\//.test(t.source))
     throw new Error("Use an HTTPS rules URL.");
   if (

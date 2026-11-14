@@ -939,6 +939,35 @@ function Workspace({
                       onCheckedChange={(v) => change({ lowestWins: v })}
                     />
                   </UIField>
+                  <Field label="Scoring input">
+                    <Select
+                      items={[
+                        { value: "numeric", label: "Numeric points" },
+                        { value: "outcome", label: "Outcome (won / lost)" },
+                      ]}
+                      value={draft.scoringType ?? "numeric"}
+                      onValueChange={(scoringType) => {
+                        if (scoringType === "outcome") {
+                          change({
+                            scoringType: "outcome",
+                            engineVersion: 2,
+                            resultMode: "declared",
+                            lowestWins: false,
+                            fields: [{ id: "outcome", label: "Outcome", hint: "Choose victory or defeat for each player.", total: true, min: 0, max: 1 }],
+                            tieBreakers: [],
+                          });
+                        } else {
+                          change({ scoringType: "numeric", resultMode: undefined, engineVersion: 1, fields: [{ id: "score", label: "Victory points", hint: "", total: true, min: 0 }], tieBreakers: [] });
+                        }
+                      }}
+                    >
+                      <SelectTrigger aria-label="Scoring input"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectGroup>
+                        <SelectItem value="numeric">Numeric points</SelectItem>
+                        <SelectItem value="outcome">Outcome (won / lost)</SelectItem>
+                      </SelectGroup></SelectContent>
+                    </Select>
+                  </Field>
                   <div className="section-heading category-heading">
                     <span className="section-number">02</span>
                     <div>
@@ -1367,7 +1396,7 @@ function Workspace({
                 <h2>{draft.title}</h2>
                 <p>
                   {draft.minPlayers}–{draft.maxPlayers} players ·{" "}
-                  {draft.lowestWins ? "Lowest" : "Highest"} score wins
+                  {draft.scoringType === "outcome" ? "Win / loss result" : `${draft.lowestWins ? "Lowest" : "Highest"} score wins`}
                 </p>
                 <div className="sheet-rule" />
                 {draft.fields.map((f) => (
@@ -1376,7 +1405,7 @@ function Workspace({
                       {f.label}
                       <small>{f.total ? "Points" : "Tie-breaker"}</small>
                     </span>
-                    <span className="score-box">—</span>
+                    <span className="score-box">{draft.scoringType === "outcome" ? "Won / Lost" : "—"}</span>
                   </div>
                 ))}
                 {templateTieBreakRules(draft).length ? (
@@ -1387,10 +1416,10 @@ function Workspace({
                       .join(" → ")}
                   </div>
                 ) : null}
-                <div className="total-line">
+                {draft.scoringType !== "outcome" ? <div className="total-line">
                   <strong>Total score</strong>
                   <strong>0</strong>
-                </div>
+                </div> : null}
                 <div className="sheet-note">{draft.endCondition}</div>
               </CardContent>
             </Card>
